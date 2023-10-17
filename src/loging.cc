@@ -621,6 +621,12 @@ void LogMessage::Flush() {
 static time_t fatal_time;
 static char fatal_message[256];
 
+
+// TODO: lastest update
+void ReprintFatalMessage() {
+
+}
+
 // 必须持有 log_mutex
 void LogMessage::SendToLog() {
   static bool already_warned_before_initgoolgle = false;
@@ -696,6 +702,11 @@ void LogMessage::SendToLog() {
     Fail();
   }
 
+}
+
+// TODO: lastest update
+void LogMessage::RecordCrashReason(glog_internal_namespace_::CrashReason* reason) {
+  
 }
 
 // mutex
