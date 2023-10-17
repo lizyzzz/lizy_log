@@ -150,11 +150,11 @@ class LogDestination {
   LogDestination(LogSeverity severity, const char* base_filename);
   ~LogDestination();
 
-  // 获取特定严重程度的日志消息, 如果它的严重程度足够高，则将其记录到 stderr
+  // 落地特定严重程度的日志消息, 如果它的严重程度足够高，则将其记录到 stderr
   static void MaybeLogToStderr(LogSeverity severity, const char* message, size_t message_len, size_t prefix_len);
-  // 获取特定严重程度的日志消息, 如果它的 base filename 不是 "", 则记录到文件
+  // 落地特定严重程度的日志消息, 如果它的 base filename 不是 "", 则记录到文件
   static void MaybeLogToLogfile(LogSeverity severity, time_t timestamp, const char* message, size_t len);
-  // 获取特定严重程度的日志消息, 并将其记录到与该严重程度相对应的文件以及所有严重程度低于此严重程度的文件中
+  // 落地特定严重程度的日志消息, 并将其记录到与该严重程度相对应的文件以及所有严重程度低于此严重程度的文件中
   static void LogToAllLogfiles(LogSeverity severity, time_t timestamp, const char* message, size_t len);
   // 发送日志信息到所有已注册的 sinks
   static void LogToSinks(LogSeverity severity, const char* full_filename, const char* base_filename, int line, 
@@ -378,7 +378,7 @@ static void WriteToStderr(const char* message, size_t len) {
   fwrite(message, len, 1, stderr); // 把 n 个 len 的数据块写到文件
 }
 
-// 获取特定严重程度的日志消息, 如果它的严重程度足够高，则将其记录到 stderr
+// 落地特定严重程度的日志消息, 如果它的严重程度足够高，则将其记录到 stderr
 void LogDestination::MaybeLogToStderr(LogSeverity severity, const char* message, size_t message_len, size_t prefix_len) {
   if (severity >= FLAGS_stderrthreshold || FLAGS_alsologtostderr) {
     ColoredWriteToStderr(severity, message, message_len);
@@ -386,18 +386,63 @@ void LogDestination::MaybeLogToStderr(LogSeverity severity, const char* message,
   }
 }
 
-// TODO: lastest update
-// 获取特定严重程度的日志消息, 如果它的 base filename 不是 "", 则记录到文件
-void MaybeLogToLogfile(LogSeverity severity, time_t timestamp, const char* message, size_t len);
-// 获取特定严重程度的日志消息, 并将其记录到与该严重程度相对应的文件以及所有严重程度低于此严重程度的文件中
-void LogToAllLogfiles(LogSeverity severity, time_t timestamp, const char* message, size_t len);
+// 落地特定严重程度的日志消息, 如果它的 base filename 不是 "", 则记录到文件
+void LogDestination::MaybeLogToLogfile(LogSeverity severity, time_t timestamp, const char* message, size_t len) {
+  const bool should_flush = severity > FLAGS_logbuflevel;
+  LogDestination* destination = log_destination(severity);
+  destination->logger_->Write(should_flush, timestamp, message, len); // 日志落地
+}
+
+// 落地特定严重程度的日志消息, 并将其记录到与该严重程度相对应的文件以及所有严重程度低于此严重程度的文件中
+void LogDestination::LogToAllLogfiles(LogSeverity severity, time_t timestamp, const char* message, size_t len) {
+  if (FLAGS_logtostdout) {
+    // 直接写到 stdout
+    ColoredWriteToStdout(severity, message, len);
+  } else if (FLAGS_logtostderr) {
+    // 直接写到 stderr
+    ColoredWriteToStderr(severity, message, len);
+  } else {
+    for (int i = severity; i >= 0; --i) {
+      LogDestination::MaybeLogToLogfile(i, timestamp, message, len);
+    }
+  }
+}
+
 // 发送日志信息到所有已注册的 sinks
-void LogToSinks(LogSeverity severity, const char* full_filename, const char* base_filename, int line, 
-                        const LogMessageTime& logmsgtime, const char* message, size_t message_len);
+void LogDestination::LogToSinks(LogSeverity severity, const char* full_filename, const char* base_filename, int line, 
+                        const LogMessageTime& logmsgtime, const char* message, size_t message_len) {
+  
+  // TODO: 增加 读写锁提高读多写少的并发量
+  std::lock_guard<std::mutex> lk(sink_mutex_);
+  if (sinks_) {
+    for (size_t i = sinks_->size(); i-- > 0; ) {
+      // i-- 是因为 size_t 是 unsigned
+      // 发送日志到已注册的 sink 
+      (*sinks_)[i]->send(severity, full_filename, base_filename, line, logmsgtime, message, message_len);
+    }
+  }
+}
 
 // 等待所有已注册的输出目标通过 WaitTillSent 完成发送
 // 包括 "data" 中的可选目标
-void WaitForSinks(LogMessage::LogMessageData* data);
+void LogDestination::WaitForSinks(LogMessage::LogMessageData* data) {
+  std::lock_guard<std::mutex> lk(sink_mutex_);
+  if (sinks_) {
+    for (size_t i = sinks_->size(); i-- > 0; ) {
+      // i-- 是因为 size_t 是 unsigned
+      // 等待发送日志到已注册的 sink 
+      (*sinks_)[i]->WaitTillSent();
+    }
+  }
+
+  const bool send_to_sink = (data->send_method_ == &LogMessage::SendToSink) || 
+                            (data->send_method_ == &LogMessage::SendToSinkAndLog);
+  
+  if (send_to_sink && data->sink_ != nullptr) {
+    data->sink_->WaitTillSent();
+  }
+
+}
 
 
 /* ------------------------------------------------------------------------------ */
@@ -568,6 +613,11 @@ void LogMessage::Flush() {
   }
 
   data_->has_been_flushed_ = true;
+}
+
+// TODO: lastest update
+void LogMessage::SendToLog() {
+  
 }
 
 // mutex

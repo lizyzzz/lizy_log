@@ -2,6 +2,8 @@
 #include "type.h"
 using std::string;
 
+// TODO: read option from Json
+
 bool FLAGS_logtostderr = false;
 bool FLAGS_alsologtostderr = false;
 bool FLAGS_colorlogtostderr = false;
