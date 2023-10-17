@@ -9,6 +9,8 @@
 #include <algorithm>
 #include <mutex>
 #include <assert.h>
+#include <cmath>
+#include <unistd.h>
 #include "utilities.h"
 #include "type.h"
 #include "flag.h"

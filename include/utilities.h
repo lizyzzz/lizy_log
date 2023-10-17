@@ -4,6 +4,8 @@
 #include <sys/time.h>
 #include <cstring>
 
+bool IsGoogleLoggingInitialized();
+
 namespace glog_internal_namespace_ {
 
 // 返回自起始时间的微秒数(int64)
@@ -25,6 +27,11 @@ struct CrashReason {
   void* stack[32];
   int depth{0};
 };
+
+void SetCrashReason(const CrashReason* r);
+
+void InitGoogleLoggingUtilities(const char* argv0);
+void ShutdownGoogleLoggingUtilities();
 
 }
 

@@ -615,9 +615,87 @@ void LogMessage::Flush() {
   data_->has_been_flushed_ = true;
 }
 
-// TODO: lastest update
+
+// 复制第一个致命错误日志消息, 以便我们在所有堆栈跟踪之后可以再次打印它出来.
+// 为了保持与旧版行为的一致, 我们不使用 fatal_msg_data_exclusive
+static time_t fatal_time;
+static char fatal_message[256];
+
+// 必须持有 log_mutex
 void LogMessage::SendToLog() {
+  static bool already_warned_before_initgoolgle = false;
+  // 确保持有锁
   
+  assert(data_->num_chars_to_log_ > 0 && data_->message_text_[data_->num_chars_to_log_ - 1] == '\n');
+
+  if (!already_warned_before_initgoolgle && !IsGoogleLoggingInitialized()) {
+    const char w[] = "WARNING: Logging before InitGoogleLogginging() is written to STDERR\n";
+    WriteToStderr(w, strlen(w));
+    already_warned_before_initgoolgle = true;
+  }
+
+  if (FLAGS_logtostderr || FLAGS_logtostdout || !IsGoogleLoggingInitialized()) {
+    if (FLAGS_logtostdout) {
+      ColoredWriteToStdout(data_->severity_, data_->message_text_, data_->num_chars_to_log_);
+    } else {
+      ColoredWriteToStderr(data_->severity_, data_->message_text_, data_->num_chars_to_log_);
+    }
+
+    // 如果有需要这里可以用 FLAG 保护起来
+    // 不发送头部
+    LogDestination::LogToSinks(data_->severity_, data_->fullname_, data_->basename_,
+                              data_->line_, logmsgtime_, data_->message_text_ + data_->num_prefix_chars_,
+                              (data_->num_chars_to_log_ - data_->num_prefix_chars_ - 1) );
+
+  } else {
+    // 把日志文件落地
+    LogDestination::LogToAllLogfiles(data_->severity_, logmsgtime_.timestamp(), 
+                                    data_->message_text_, data_->num_chars_to_log_);
+
+    LogDestination::MaybeLogToStderr(data_->severity_, data_->message_text_, 
+                                    data_->num_chars_to_log_, data_->num_prefix_chars_);
+    
+    LogDestination::LogToSinks(data_->severity_, data_->fullname_, data_->basename_,
+                              data_->line_, logmsgtime_, data_->message_text_ + data_->num_prefix_chars_,
+                              (data_->num_chars_to_log_ - data_->num_prefix_chars_ - 1) );
+  }
+
+  // 如果我们记录了一个致命错误的消息, 将所有的日志输出刷新一遍
+  // 然后发送一个信号让其他人来处理. 我们保持日志处于一种状态, 其他人可以使用它们(只要在之后也进行了刷新)
+  if (data_->severity_ == GLOG_FATAL && exit_on_dfatal) {
+    if (data_->first_fatal_) {
+      // 保存错误信息
+      RecordCrashReason(&crash_reason);
+      glog_internal_namespace_::SetCrashReason(&crash_reason);
+
+      // 保存最短的错误信息
+      const size_t copy = std::min(data_->num_chars_to_log_, sizeof(fatal_message) - 1);
+      memcpy(fatal_message, data_->message_text_, copy);
+      fatal_message[copy] = '\0';
+      fatal_time = logmsgtime_.timestamp();
+    }
+
+    if (!FLAGS_logtostderr && !FLAGS_logtostdout) {
+      for (auto& log_destination : LogDestination::log_destinations_) {
+        if (log_destination) {
+          log_destination->logger_->Write(true, 0, "", 0);
+        }
+      }
+    }
+
+    // 释放锁, 因为这里是 fatal 信息, 进程会被结束
+    log_mutex.unlock();
+    LogDestination::WaitForSinks(data_);
+
+    const char* message = "*** Check failure stack trace: ***\n";
+    if (write(STDERR_FILENO, message, strlen(message)) < 0) {
+      // Ignore errors.
+    }
+
+    // 结束进程
+    Fail();
+  }
+
 }
 
 // mutex
@@ -632,6 +710,9 @@ static bool stop_writing = false;
 const char* const LogSeverityNames[NUM_SEVERITIES] = {
   "INFO", "WARNING", "ERROR", "FATAL"
 };
+
+// Has the user called SetExitOnDFatal(true)?
+static bool exit_on_dfatal = true;
 
 const char* GetLogSeverityName(LogSeverity severity) {
   return LogSeverityNames[severity];

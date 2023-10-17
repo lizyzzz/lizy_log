@@ -1,5 +1,12 @@
 #include "utilities.h"
 
+static const char* g_program_invocation_short_name = nullptr;
+
+bool IsGoogleLoggingInitialized() {
+  return g_program_invocation_short_name != nullptr;
+}
+
+
 
 namespace glog_internal_namespace_ {
 
