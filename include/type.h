@@ -18,4 +18,6 @@ enum GLogColor {
   COLOR_YELLOW
 };
 
+enum PRIVATE_Counter {COUNTER};
+
 #endif

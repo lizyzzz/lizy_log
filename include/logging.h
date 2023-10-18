@@ -15,6 +15,9 @@
 #include "type.h"
 #include "flag.h"
 
+typedef void (*logging_fail_func_t)();
+void InstallFailureFunction(logging_fail_func_t fail_func);
+
 struct LogMessageTime {
   LogMessageTime();
   LogMessageTime(std::tm t);
@@ -239,6 +242,8 @@ class LogMessage {
     LogMessage& operator=(const LogMessage&) = delete; // delete operator=
 };
 
+// 当前仅当 ostream 是 LogStream 时起作用
+std::ostream& operator<<(std::ostream &os, const PRIVATE_Counter&);
 
 
 namespace base {
@@ -274,6 +279,7 @@ Logger* GetLogger(LogSeverity level);
 void SetLogger(LogSeverity level, Logger* logger);
 
 } // end of namespace base
+
 
 
 

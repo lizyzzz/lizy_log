@@ -26,4 +26,12 @@ const char* const_basename(const char* filepath) {
   return base ? (base + 1) : filepath;
 }
 
+const char* ProgramInvocationShortName() {
+  if (g_program_invocation_short_name != nullptr) {
+    return g_program_invocation_short_name;
+  } else {
+    return "UNKNOWN";
+  }
+}
+
 }

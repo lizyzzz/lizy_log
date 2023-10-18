@@ -10,7 +10,7 @@ namespace glog_internal_namespace_ {
 
 // 返回自起始时间的微秒数(int64)
 int64 CycleClock_Now();
-// 返回字起始时间的微秒数(double)
+// 返回自起始时间的微秒数(double)
 WallTime WallTime_Now();
 
 // 获取路径在'/'的最后一个名字
@@ -32,6 +32,9 @@ void SetCrashReason(const CrashReason* r);
 
 void InitGoogleLoggingUtilities(const char* argv0);
 void ShutdownGoogleLoggingUtilities();
+
+// 获取程序短名称
+const char* ProgramInvocationShortName();
 
 }
 

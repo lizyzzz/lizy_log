@@ -34,6 +34,8 @@ struct LogMessage::LogMessageData {
   LogMessageData& operator=(const LogMessageData&) = delete;
 };
 
+/* ------------------------------ LogFileObject ------------------------------------------------ */
+
 namespace {
   // 封装所有文件系统的相关状态
   // 默认的文件方式的日志落地
@@ -61,14 +63,14 @@ namespace {
     void FlushUnlocked();
 
    private:
-    static const uint32 kRolloverAttemptFrequency = 0x20; // 日志滚动频率
+    static const uint32 kRolloverAttemptFrequency = 0x20; // 日志滚动频率(大小)
 
     std::mutex lock_;
     bool base_filename_selected_;
     std::string base_filename_;
     std::string symlink_basename_;
     std::string filename_extension_;
-    FILE* file{nullptr};
+    FILE* file_{nullptr};            // 目标文件
     LogSeverity severity_;
     uint32 bytes_since_flush_{0};
     uint32 dropped_mem_length_{0};
@@ -87,6 +89,41 @@ namespace {
     
   };
 }
+
+namespace {
+// 文件目录分隔符号
+const char possible_dir_delim[] = {'/'};
+
+LogFileObject::LogFileObject(LogSeverity severity, const char* base_filename)
+ : base_filename_selected_(base_filename != nullptr),
+   base_filename_((base_filename != nullptr) ? base_filename : nullptr),
+   symlink_basename_(glog_internal_namespace_::ProgramInvocationShortName()),
+   filename_extension_(),
+   severity_(severity),
+   rollover_attempt_(kRolloverAttemptFrequency - 1),
+   start_time_(glog_internal_namespace_::WallTime_Now())
+    {
+  assert(severity >= 0 && severity < NUM_SEVERITIES);
+}
+
+LogFileObject::~LogFileObject() {
+  std::lock_guard<std::mutex> lk(lock_);
+  if (file_ != nullptr) {
+    fclose(file_);
+    file_ = nullptr;
+  }
+}
+
+// TODO: lastest update
+void LogFileObject::SetBasename(const char* basename) {
+  
+}
+
+
+}
+
+/* ------------------------------ LogFileObject end ------------------------------------------------ */
+
 
 // 终端是否支持不同颜色的输出
 static bool TerminalSupportsColor() {
@@ -622,9 +659,16 @@ static time_t fatal_time;
 static char fatal_message[256];
 
 
-// TODO: lastest update
+// 重复打印致命错误信息
 void ReprintFatalMessage() {
-
+  if (fatal_message[0]) {
+    const size_t n = strlen(fatal_message);
+    if (!FLAGS_logtostderr) {
+      // 避免重复打印
+      WriteToStderr(fatal_message, n);
+    }
+    LogDestination::LogToAllLogfiles(GLOG_ERROR, fatal_time, fatal_message, n);
+  }
 }
 
 // 必须持有 log_mutex
@@ -704,15 +748,85 @@ void LogMessage::SendToLog() {
 
 }
 
-// TODO: lastest update
 void LogMessage::RecordCrashReason(glog_internal_namespace_::CrashReason* reason) {
-  
+  reason->filename = fatal_msg_data_exclusive.fullname_;
+  reason->line_number = fatal_msg_data_exclusive.line_;
+  reason->message = fatal_msg_data_exclusive.message_text_ + fatal_msg_data_exclusive.num_prefix_chars_; // 不记录头部
+  reason->depth = 0;
 }
+
+// 程序 crash 时调用的函数(默认是 abort() )
+logging_fail_func_t g_logging_fail_func = reinterpret_cast<logging_fail_func_t>(&abort);
+// 修改 程序 crash 时调用的函数
+void InstallFailureFunction(logging_fail_func_t fail_func) {
+  g_logging_fail_func = fail_func;
+}
+
+void LogMessage::Fail() {
+  g_logging_fail_func();
+}
+
+// 需要确保持有锁 log_mutex
+void LogMessage::SendToSink() {
+  // 确保持有锁
+  if (data_->sink_ != nullptr) {
+    assert(data_->num_chars_to_log_ > 0 && data_->message_text_[data_->num_chars_to_log_ - 1] == '\n');
+
+    data_->sink_->send(data_->severity_, data_->fullname_, data_->basename_, data_->line_,
+                      logmsgtime_, data_->message_text_ + data_->num_prefix_chars_, (data_->num_chars_to_log_ - data_->num_prefix_chars_ - 1));
+
+  }
+}
+
+// 确保持有锁
+void LogMessage::SendToSinkAndLog() {
+  SendToSink();
+  SendToLog();
+}
+
+// 确保持有锁
+void LogMessage::SaveOrSendToLog() {
+  if (data_->outvec_ != nullptr) {
+    assert(data_->num_chars_to_log_ > 0 && data_->message_text_[data_->num_chars_to_log_ - 1] == '\n');
+
+    // 类型转换
+    const char* start = data_->message_text_ + data_->num_prefix_chars_;
+    size_t len = data_->num_chars_to_log_ - data_->num_prefix_chars_ - 1;
+    data_->outvec_->push_back(std::string(start, len));
+  } else {
+    SendToLog();
+  }
+}
+
+// 确保持有锁
+void LogMessage::WriteToStringAndLog() {
+  if (data_->message_ != nullptr) {
+    assert(data_->num_chars_to_log_ > 0 && data_->message_text_[data_->num_chars_to_log_ - 1] == '\n');
+
+    // 类型转换
+    const char* start = data_->message_text_ + data_->num_prefix_chars_;
+    size_t len = data_->num_chars_to_log_ - data_->num_prefix_chars_ - 1;
+    data_->message_->assign(start, len);
+  } 
+}
+
+void LogMessage::SendToSyslogAndLog() {
+  // TODO: 增加 LOG() 宏接口
+  // LOG(ERROR) << "No syslog support: message=" << data_->message_text_;
+}
+
+// 静态成员函数
+int64 LogMessage::num_messages(int severity) {
+  std::lock_guard<std::mutex> lk(log_mutex);
+  return num_messages_[severity];
+}
+
 
 // mutex
 static std::mutex log_mutex;
 
 // 每种优先级被发送的信息的数量
+// 静态成员变量
 int64 LogMessage::num_messages_[NUM_SEVERITIES] = {0, 0, 0, 0};
 
 // 禁止继续记录日志的标记 (当磁盘满时)
@@ -729,3 +843,26 @@ const char* GetLogSeverityName(LogSeverity severity) {
   return LogSeverityNames[severity];
 }
 
+// 获取指定严重程度级别的日志记录器
+// 日志记录器仍然属于日志模块的所有权, 不应由调用者删除
+// 线程安全的
+base::Logger* base::GetLogger(LogSeverity level) {
+  std::lock_guard<std::mutex> lk(log_mutex);
+  LogDestination::log_destination(level)->GetLoggerImpl();
+}
+
+// 设置指定严重程度级别的日志记录器
+// 日志记录器将成为日志模块的所有权, 调用者不应该删除它
+// 线程安全的
+void base::SetLogger(LogSeverity level, base::Logger* logger) {
+  std::lock_guard<std::mutex> lk(log_mutex);
+  LogDestination::log_destination(level)->SetLoggerImpl(logger);
+}
+
+// 当前仅当 ostream 是 LogStream 时起作用
+std::ostream& operator<<(std::ostream& os, const PRIVATE_Counter&) {
+  auto* log = dynamic_cast<LogMessage::LogStream*>(&os);
+  assert(log && log == log->self());
+  os << log->ctr();
+  return os;
+}
