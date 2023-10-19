@@ -11,6 +11,10 @@
 #include <assert.h>
 #include <cmath>
 #include <unistd.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/utsname.h>
+#include <sys/stat.h>
 #include "utilities.h"
 #include "type.h"
 #include "flag.h"
@@ -281,8 +285,18 @@ void SetLogger(LogSeverity level, Logger* logger);
 } // end of namespace base
 
 
+// 一些接口函数 //
 
+// 设置 FALTAL 时执行的函数
+void InstallFailureFunction(logging_fail_func_t fail_func);
 
+// 获取日志等级对应的名字
+const char* GetLogSeverityName(LogSeverity severity);
+
+// 获取日志文件目录
+const std::vector<std::string>& GetLoggingDirectories();
+
+void ReprintFatalMessage();
 
 #endif
 

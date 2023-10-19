@@ -2,6 +2,8 @@
 #define UTILITIES_H_
 #include "type.h"
 #include <sys/time.h>
+#include <unistd.h>
+#include <string>
 #include <cstring>
 
 bool IsGoogleLoggingInitialized();
@@ -12,6 +14,8 @@ namespace glog_internal_namespace_ {
 int64 CycleClock_Now();
 // 返回自起始时间的微秒数(double)
 WallTime WallTime_Now();
+
+int64 UsecToCycles(int64 usec);
 
 // 获取路径在'/'的最后一个名字
 const char* const_basename(const char* filepath);
@@ -35,6 +39,13 @@ void ShutdownGoogleLoggingUtilities();
 
 // 获取程序短名称
 const char* ProgramInvocationShortName();
+// 进程号是否改变
+bool PidHasChanged();
+
+int32 GetMainThreadPid();
+
+// 获取用户名
+const std::string& MyUserName();
 
 }
 

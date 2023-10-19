@@ -4,6 +4,54 @@ using std::setw;
 
 const size_t LogMessage::kMaxLogMessageLen = 30000;
 
+static uint32 MaxLogSize() {
+  return (FLAGS_max_log_size > 0 && FLAGS_max_log_size < 4096 ? FLAGS_max_log_size : 1);
+}
+
+static std::vector<string>* logging_directories_list;
+const std::vector<std::string>& GetLoggingDirectories() {
+  if (logging_directories_list == nullptr) {
+    logging_directories_list = new std::vector<std::string>;
+    if (!FLAGS_log_dir.empty()) {
+      logging_directories_list->push_back(FLAGS_log_dir);
+    } else {
+      GetTempDirectories(logging_directories_list);
+      logging_directories_list->push_back("./");
+    }
+  }
+  return *logging_directories_list;
+}
+
+static void GetTempDirectories(std::vector<std::string>* list) {
+  list->clear();
+  const char * candidates[] = {
+    // Non-null only during unittest/regtest
+    getenv("TEST_TMPDIR"),
+
+    // Explicitly-supplied temp dirs
+    getenv("TMPDIR"), getenv("TMP"),
+
+    // If all else fails
+    "/tmp",
+  };
+
+  for (auto d : candidates) {
+    if (!d) continue;
+    std::string dstr = d;
+    if (dstr[dstr.size() - 1] != '/') {
+      dstr += "/";
+    }
+    list->push_back(dstr);
+
+    struct stat statbuff;
+    // 获取目录的状态
+    if (!stat(d, &statbuff) && S_ISDIR(statbuff.st_mode)) {
+      return;
+    }
+  }
+
+}
+
 
 struct LogMessage::LogMessageData {
   LogMessageData();
@@ -37,6 +85,18 @@ struct LogMessage::LogMessageData {
 /* ------------------------------ LogFileObject ------------------------------------------------ */
 
 namespace {
+  std::string PrettyDuration(int secs) {
+    std::stringstream result;
+    int mins = secs / 60;
+    int hours = mins / 60;
+    mins %= 60;
+    secs %= 60;
+    result.fill('0');
+    result << hours << ':' << setw(2) << mins << ':' << setw(2) << secs;
+    return result.str();
+  } 
+
+
   // 封装所有文件系统的相关状态
   // 默认的文件方式的日志落地
   class LogFileObject : public base::Logger {
@@ -72,9 +132,9 @@ namespace {
     std::string filename_extension_;
     FILE* file_{nullptr};            // 目标文件
     LogSeverity severity_;
-    uint32 bytes_since_flush_{0};
-    uint32 dropped_mem_length_{0};
-    uint32 file_length_{0};
+    uint32 bytes_since_flush_{0};   // 上一次刷盘到现在的字节数
+    uint32 dropped_mem_length_{0};  // 丢弃文件流中的字节数
+    uint32 file_length_{0};         // 文件字节数
     unsigned int rollover_attempt_; // 日志滚动次数(即另外新建一个新的日志文件)
     int64 next_flush_time_{0};      // 经过多少个周期后进行日志刷盘操作
     WallTime start_time_;
@@ -85,9 +145,38 @@ namespace {
   };
 
   // TODO: lastest update
+  // 封装所有日志清理相关状态
   class LogCleaner {
+   public:
+    LogCleaner();
+
+    // 将 overdue_days(逾期天数) 设置为 0 天会删除所有日志
+    void Enable(unsigned int overdue_days);
+    void Disable();
+
+    void UpdateCleanUpTime();
+
+    void Run(bool base_filename_selected, const std::string& base_filename, const std::string& filename_extension);
+
+    bool enabled() const { return enabled_; }
+
+   private:
+    std::vector<std::string> GetOverdueLogNames(std::string log_directory, unsigned int days,
+                                                const std::string& base_filename,
+                                                const std::string& filename_extension) const;
     
+    bool IsLogFromCurrentProject(const std::string& filepath,
+                                 const std::string& base_filename,
+                                 const std::string& filename_extension) const;
+
+    bool IsLogLastModifiedOver(const std::string& filepath, unsigned int days) const;
+
+    bool enabled_{false};
+    unsigned int overdue_days_{7};
+    int64 next_cleanup_time_{0}; // 清理逾期日志的周期计数
   };
+
+  LogCleaner log_cleaner;
 }
 
 namespace {
@@ -114,12 +203,293 @@ LogFileObject::~LogFileObject() {
   }
 }
 
-// TODO: lastest update
 void LogFileObject::SetBasename(const char* basename) {
-  
+  std::lock_guard<std::mutex> lk(lock_);
+  base_filename_selected_ = true;
+  if (base_filename_ != basename) {
+    // 正在改名字, 旧日志关闭
+    if (file_ != nullptr) {
+      fclose(file_);
+      file_ = nullptr;
+      rollover_attempt_ = kRolloverAttemptFrequency - 1;
+    }
+    base_filename_ = basename;
+  }  
+}
+
+void LogFileObject::SetExtension(const char* ext) {
+  std::lock_guard<std::mutex> lk(lock_);
+  base_filename_selected_ = true;
+  if (filename_extension_ != ext) {
+    // 正在改名字, 旧日志关闭
+    if (file_ != nullptr) {
+      fclose(file_);
+      file_ = nullptr;
+      rollover_attempt_ = kRolloverAttemptFrequency - 1;
+    }
+    filename_extension_ = ext;
+  } 
+}
+
+void LogFileObject::SetSymlinkBasename(const char* symlink_basename) {
+  std::lock_guard<std::mutex> lk(lock_);
+  symlink_basename_ = symlink_basename;
+}
+
+void LogFileObject::Flush() {
+  std::lock_guard<std::mutex> lk(lock_);
+  FlushUnlocked();
+}
+
+void LogFileObject::FlushUnlocked() {
+  if (file_ != nullptr) {
+    fflush(file_); // sys func
+    bytes_since_flush_ = 0;
+  }
+
+  const int64 next = (FLAGS_logbufsecs * static_cast<int64>(1000000)); // 毫秒
+  next_flush_time_ = glog_internal_namespace_::CycleClock_Now() + glog_internal_namespace_::UsecToCycles(next); 
+}
+
+bool LogFileObject::CreateLogfile(const std::string& time_pid_string) {
+  std::string string_filename = base_filename_;
+  if (FLAGS_timestamp_in_logfile_name) {
+    string_filename += time_pid_string;
+  }
+
+  string_filename += filename_extension_; // 扩展名
+
+  const char* filename = string_filename.c_str();
+  // 只写 且 不存在时创建
+  int flags = O_WRONLY | O_CREAT;
+  if (FLAGS_timestamp_in_logfile_name) {
+    // 如果文件已存在则会失败
+    flags = flags | O_EXCL;
+  }
+  // 打开文件
+  int fd = open(filename, flags, static_cast<mode_t>(FLAGS_logfile_mode));
+  if (fd == -1) return false;
+
+  // fd 与一个 流 关联
+  file_ = fdopen(fd, "a");
+  if (file_ == nullptr) {
+    close(fd);
+    if (FLAGS_timestamp_in_logfile_name) {
+      unlink(filename); // 删除创建的文件
+    }
+    return false;
+  }
+
+  // 创建一个 名为 <program_name>.<severity> 的软链接
+  // 每次我们创建一个新的日志文件, 我们都会删除旧的软链接并创建一个新的, 使得它一直指向新的日志文件
+  if (!symlink_basename_.empty()) {
+    const char* slash = strrchr(filename, PATH_SEPARATOR);
+    // 软链接名
+    const std::string linkname = symlink_basename_ + '.' + LogSeverityNames[severity_];
+    std::string linkpath;
+    if (slash) {
+      // 获取目录名
+      linkpath = std::string(filename, static_cast<size_t>(slash - filename + 1));
+    }
+    linkpath += linkname;
+    unlink(linkpath.c_str()); // 删除旧的软链接
+
+    // 包含 unistd.h
+    // 使符号链接相对于当前目录(在相同目录内)以便与整个日志目录被移动时仍然有效
+    const char* linkdest = slash ? (slash + 1) : filename;
+    // 此时 linkpath --> linkdest
+    if (symlink(linkdest, linkpath.c_str()) != 0) {
+      // 忽略错误
+    }
+
+    // 根据 FLAGS 创建一个指定的软链接
+    if (!FLAGS_log_link.empty()) {
+      linkpath = FLAGS_log_link + "/" + linkname;
+      unlink(linkpath.c_str()); // 删除旧的软链接
+      if (symlink(filename, linkpath.c_str()) != 0) {
+        // 忽略错误
+      }
+    }
+  }
+  return true;
+}
+
+void LogFileObject::Write(bool force_flush, time_t timestamp, const char* message, size_t message_len) {
+  std::lock_guard<std::mutex> lk(lock_);
+  // base_filename_ 是空则不用写
+  if (base_filename_selected_ && base_filename_.empty()) {
+    return;
+  }
+
+  // file_length_ >> 20U 相当于把字节数转化从兆 B --> MB
+  if (file_length_ >> 20U >= MaxLogSize() || glog_internal_namespace_::PidHasChanged()) {
+    if (file_ != nullptr) fclose(file_);
+    file_ = nullptr;
+    file_length_ = bytes_since_flush_ = dropped_mem_length_ = 0;
+    rollover_attempt_ = kRolloverAttemptFrequency - 1;
+  }
+  // 如果文件还没创建就先创建
+  if (file_ == nullptr) {
+    // 每 32 条日志更新一次日志文件
+    // 如果在创建文件时出现问题会丢失日志
+    if (++rollover_attempt_ != kRolloverAttemptFrequency) return;
+    rollover_attempt_ = 0;
+
+    struct ::tm tm_time;
+    if (FLAGS_log_utc_time) {
+      gmtime_r(&timestamp, &tm_time);
+    } else {
+      // 将时间戳转换为本地时间存在 tm_time
+      localtime_r(&timestamp, &tm_time);
+    }
+
+    // 文件名包括 日期/时间 pid 
+    std::ostringstream time_pid_stream;
+    time_pid_stream.fill('0');
+    time_pid_stream << 1900+tm_time.tm_year
+                    << setw(2) << 1 + tm_time.tm_mon
+                    << setw(2) << tm_time.tm_mday
+                    << '-'
+                    << setw(2) << tm_time.tm_hour
+                    << setw(2) << tm_time.tm_min
+                    << setw(2) << tm_time.tm_sec
+                    << '.'
+                    << glog_internal_namespace_::GetMainThreadPid();
+    const std::string& time_pid_string = time_pid_stream.str();
+
+    if (base_filename_selected_) {
+      if (!CreateLogfile(time_pid_string)) {
+        perror("Could not create log file");
+        fprintf(stderr, "COULD NOT CREATE LOGFILE '%s'!\n", time_pid_string.c_str());
+        return;
+      }
+    } else {
+      // 对于这个 severity_ 如果没有指定的 base_filename, 则使用默认的 base_filename
+      // 默认名称: <program name>.<hostname>.<user name>.log.<severity level> 
+
+      std::string stripped_filename(glog_internal_namespace_::ProgramInvocationShortName());
+      std::string hostname;
+      GetHostName(&hostname);
+
+      std::string uidname = glog_internal_namespace_::MyUserName();
+      if (uidname.empty()) uidname = "invalid-user";
+
+      stripped_filename = stripped_filename + '.' + hostname + '.' + uidname + ".log" + LogSeverityNames[severity_]+'.';
+
+      // 我们可能将日志放在不同的目录
+      const std::vector<string>& log_dirs = GetLoggingDirectories();
+
+      bool success = false;
+      for (const auto& log_dir : log_dirs) {
+        base_filename_ = log_dir + "/" + stripped_filename;
+        if ( CreateLogfile(time_pid_string)) {
+          success = true;
+          break;
+        }
+      }
+
+      if (success == false) {
+        perror("Could not create log file");
+        fprintf(stderr, "COULD NOT CREATE LOGFILE '%s'!\n", time_pid_string.c_str());
+        return;
+      }
+    }
+
+    if (FLAGS_log_file_header) {
+      std::ostringstream file_header_stream;
+      file_header_stream.fill('0');
+      file_header_stream << "Log file created at: "
+                         << 1900+tm_time.tm_year << '/'
+                         << setw(2) << 1+tm_time.tm_mon << '/'
+                         << setw(2) << tm_time.tm_mday << ' '
+                         << setw(2) << tm_time.tm_hour << ':'
+                         << setw(2) << tm_time.tm_min << ':'
+                         << setw(2) << tm_time.tm_sec << (FLAGS_log_utc_time ? " UTC\n" : "\n")
+                         << "Running on machine: "
+                         << LogDestination::hostname() << '\n';
+      const char* const date_time_format = FLAGS_log_year_in_prefix ? "yyyy-mm-dd hh:mm:ss.uuuuuu" : "mm-dd hh:mm:ss.uuuuuu";
+      // `2023-10-08 17:13:08.888917 [webserver.cpp:36][info]: `
+      file_header_stream << "Running duration (h:mm:ss): "
+                         << PrettyDuration(static_cast<int>(glog_internal_namespace_::WallTime_Now() - start_time_)) << '\n'
+                         << "Log line format: [IWEF]" << date_time_format << " "
+                         << "[file:line][severity]: msg" << '\n';
+      const string& file_header_string = file_header_stream.str();
+
+      const size_t header_len = file_header_string.size();
+      fwrite(file_header_string.data(), 1, header_len, file_);
+      file_length_ += header_len;
+      bytes_since_flush_ += header_len;
+    }
+  }
+
+  // 写到文件
+  if (!stop_writing) {
+    // 当磁盘已满时, fwrite() 对于小于 4096 字节的消息不会返回错误。
+    // 对于小于 4096 字节的消息, 它会返回消息的长度. 对于大于 4096 字节的消息, fwrite() 会返回 4096,从而表示发生了错误。
+    errno = 0;
+    fwrite(message, 1, message_len, file_);
+    if ( FLAGS_stop_logging_if_full_disk && errno == ENOSPC) {
+      // 磁盘不足
+      stop_writing = true;
+      return;
+    } else {
+      file_length_ += message_len;
+      bytes_since_flush_ += message_len;
+    }
+  } else {
+    if (glog_internal_namespace_::CycleClock_Now() >= next_flush_time_) {
+      stop_writing = false; // 需要刷新了
+    }
+    return; // 不需要刷盘
+  }
+
+  if ( force_flush || (bytes_since_flush_ >= 1000000) || 
+      (glog_internal_namespace_::CycleClock_Now() >= next_flush_time_)) {
+    FlushUnlocked();
+    // Linux
+    // 如果文件长度大于 3MB, 则释放一些文件流中的内存
+    if (FLAGS_drop_log_memory && file_length_ >= (3U << 20U)) {
+      // 对file_length_低 20 位清零(即取整比如 4.2M 取整到 4MB) 并且 - 1M
+      // 最后日志文件只保留 1～2M
+      uint32 total_drop_length = (file_length_ & ~((1U << 20U) - 1U)) - (1U << 20U);
+      uint32 this_drop_length = total_drop_length - dropped_mem_length_;
+      if (this_drop_length >= (2U << 20U)) {
+        // 建议系统释放相关数据块的缓存
+        // fileno(file_) 获得描述符
+        // static_cast<off_t>(dropped_mem_length_) 文件偏移量
+        // static_cast<off_t>(this_drop_length) 要释放的内存
+        // POSIX_FADV_DONTNEED: 建议系统释放相关数据块的缓存
+        posix_fadvise(fileno(file_), static_cast<off_t>(dropped_mem_length_), 
+                      static_cast<off_t>(this_drop_length), POSIX_FADV_DONTNEED);
+        
+        dropped_mem_length_ = total_drop_length;
+      }
+    }
+  }
+
+  // 删除旧的日志
+  if (log_cleaner.enabled()) {
+    log_cleaner.Run(base_filename_selected_, base_filename_, filename_extension_);
+  }
+}
+
+LogCleaner::LogCleaner() = default;
+
+// TODO: lastest update 
+void LogCleaner::Enable(unsigned int overdue_days) {
+
 }
 
 
+} // end of namespace
+
+// 获取网络主机名
+static void GetHostName(string* hostname) {
+  struct utsname buf;
+  if (uname(&buf) < 0) {
+    *(buf.nodename) = '\0';
+  }
+  *hostname = buf.nodename;
 }
 
 /* ------------------------------ LogFileObject end ------------------------------------------------ */
@@ -177,6 +547,7 @@ class LogDestination {
   static void FlushLogFiles(int min_severity);
   static void FlushLogFilesUnsafe(int min_severity);
 
+  static const string& hostname();
   static const bool& terminal_supports_color() {
     return terminal_supports_color_;
   }
@@ -210,6 +581,7 @@ class LogDestination {
 
   LogFileObject fileobject_;
   base::Logger* logger_; // 是 &fileobject_ 或 继承了 Logger 的类对象
+  static string hostname_; // 主机名
 
   // 记录每个日志等级的 LogDestination
   static LogDestination* log_destinations_[NUM_SEVERITIES];
@@ -231,6 +603,17 @@ LogDestination* LogDestination::log_destinations_[NUM_SEVERITIES];
 bool LogDestination::terminal_supports_color_ = TerminalSupportsColor();
 std::vector<LogSink*>* LogDestination::sinks_ = nullptr;
 std::mutex LogDestination::sink_mutex_;
+
+// 静态函数
+const string& LogDestination::hostname() {
+  if (hostname_.empty()) {
+    GetHostName(&hostname_);
+    if (hostname_.empty()) {
+      hostname_ = "(unknown)";
+    }
+  }
+  return hostname_;
+}
 
 // 私有属性的构造函数, 初始化 日志落地类
 LogDestination::LogDestination(LogSeverity severity, const char* base_filename)
@@ -579,6 +962,7 @@ void LogMessage::Init(const char* file, int line, LogSeverity severity, void (Lo
     stream().fill('0');
 
     // TODO: 增加一个回调函数扩展接口, 可以让用户自定义前缀格式
+    // TODO: 根据 FLAGS 决定是否记录年
     // 以下是写死的格式
     // `2023-10-08 17:13:08.888917 [webserver.cpp:36][info]: `
     stream() << setw(4) << 1900 + logmsgtime_.year() << "-" 

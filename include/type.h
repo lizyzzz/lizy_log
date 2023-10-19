@@ -20,4 +20,6 @@ enum GLogColor {
 
 enum PRIVATE_Counter {COUNTER};
 
+enum { PATH_SEPARATOR = '/'};
+
 #endif

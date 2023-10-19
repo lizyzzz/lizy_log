@@ -10,6 +10,11 @@ bool FLAGS_colorlogtostderr = false;
 bool FLAGS_colorlogtostdout = false;
 bool FLAGS_logtostdout = false;
 bool FLAGS_stop_logging_if_full_disk = false;
+bool FLAGS_log_utc_time = false;
+bool FLAGS_timestamp_in_logfile_name = true;
+bool FLAGS_log_file_header = true;
+bool FLAGS_log_year_in_prefix = true;
+bool FLAGS_drop_log_memory = true;
 
 int32 FLAGS_stderrthreshold = GLOG_ERROR;
 int32 FLAGS_minloglevel = 0;
