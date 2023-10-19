@@ -84,6 +84,8 @@ struct LogMessage::LogMessageData {
 
 /* ------------------------------ LogFileObject ------------------------------------------------ */
 
+base::Logger::~Logger() = default;
+
 namespace {
   std::string PrettyDuration(int secs) {
     std::stringstream result;
