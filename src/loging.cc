@@ -1424,3 +1424,110 @@ std::ostream& operator<<(std::ostream& os, const PRIVATE_Counter&) {
   os << log->ctr();
   return os;
 }
+
+/* ----------------------------- LogMessageTime ---------------------------- */
+LogMessageTime::LogMessageTime()
+  : time_struct_(), timestamp_(0), usecs_(0), gmtoffset_(0) {}
+
+LogMessageTime::LogMessageTime(std::tm t) {
+  std::time_t timestamp = std::mktime(&t);
+  init(t, timestamp, 0);
+}
+
+LogMessageTime::LogMessageTime(std::time_t timestamp, WallTime now) {
+  std::tm t;
+  if (FLAGS_log_utc_time) {
+    gmtime_r(&timestamp, &t);
+  } else {
+    localtime_r(&timestamp, &t);
+  }
+  init(t, timestamp, now);
+}
+
+void LogMessageTime::init(const std::tm& t, std::time_t timestamp, WallTime now) {
+  time_struct_ = t;
+  timestamp_ = timestamp;
+  usecs_ = static_cast<int32>((now - timestamp) * 1000000);
+
+  CalcGmtOffset();
+}
+
+void LogMessageTime::CalcGmtOffset() {
+  std::tm gmt_struct;
+  int isDst = 0;
+  if (FLAGS_log_utc_time) {
+    localtime_r(&timestamp_, &gmt_struct);
+    isDst = gmt_struct.tm_isdst;
+    gmt_struct = time_struct_;
+  } else {
+    isDst = time_struct_.tm_isdst;
+    gmtime_r(&timestamp_, &gmt_struct);
+  }
+
+  time_t gmt_sec = mktime(&gmt_struct);
+  const long hour_secs = 3600;
+  gmtoffset_ = static_cast<long int>(timestamp_ - gmt_sec + (isDst ? hour_secs : 0));
+}
+
+
+/* ----------------------------- LogMessageTime end ---------------------------- */
+
+
+/* ----------------------------- LogSink ---------------------------- */
+LogSink::~LogSink() = default;
+
+void LogSink::send(LogSeverity severity, const char* full_filename, 
+                    const char* base_filename, int line,
+                    const LogMessageTime& logmsgtime, const char* message,
+                    size_t message_len) {
+  
+
+  send(severity, full_filename, base_filename, line, &logmsgtime.tm(), message, message_len);
+}
+
+void LogSink::send(LogSeverity severity, const char* full_filename,
+                    const char* base_filename, int line, const std::tm* t,
+                    const char* message, size_t message_len) {
+  
+  // 默认实现(不做任何操作)
+  (void)severity;
+  (void)full_filename;
+  (void)base_filename;
+  (void)line;
+  (void)t;
+  (void)message;
+  (void)message_len;
+}
+
+void LogSink::WaitTillSent() {
+  // 默认不做操作
+}
+
+std::string LogSink::ToString(LogSeverity severity, const char* file, int line,
+                     const LogMessageTime &logmsgtime,
+                     const char* message, size_t message_len) {
+  
+  std::ostringstream stream;
+  stream.fill('0');
+
+  // TODO: 根据 FLAGS 决定是否记录年
+  stream << setw(4) << 1900 + logmsgtime.year() << "-" 
+        << setw(2) << 1 + logmsgtime.month() << "-" 
+        << setw(2) << logmsgtime.day() << ' '
+        << setw(2) << logmsgtime.hour() << ':'
+        << setw(2) << logmsgtime.min() << ':'
+        << setw(2) << logmsgtime.sec() << "."
+        << setw(6) << logmsgtime.usec() << " ["
+        << file << ':' << line << "]["
+        << LogSeverityNames[severity] << "]: ";
+  
+  (stream.write)(message, static_cast<std::streamsize>(message_len));
+  return stream.str();
+}
+
+/* ----------------------------- LogSink end ---------------------------- */
+
+
+
+
+

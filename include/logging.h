@@ -77,19 +77,12 @@ public:
                     const char* base_filename, int line, const std::tm* t,
                     const char* message, size_t message_len);
 
-  // Redefine this to implement waiting for
-  // the sink's logging logic to complete.
-  // It will be called after each send() returns,
-  // but before that LogMessage exits or crashes.
-  // By default this function does nothing.
-  // Using this function one can implement complex logic for send()
-  // that itself involves logging; and do all this w/o causing deadlocks and
-  // inconsistent rearrangement of log messages.
-  // E.g. if a LogSink has thread-specific actions, the send() method
-  // can simply add the message to a queue and wake up another thread that
-  // handles real logging while itself making some LOG() calls;
-  // WaitTillSent() can be implemented to wait for that logic to complete.
-  // See our unittest for an example.
+  // 这个函数用于实现等待日志输出完成的逻辑. 它会在每次 send() 函数返回后, 且在 LogMessage 退出或崩溃之前执行 被调用.
+  // 默认情况下, 这个函数不执行任何操作
+  // 使用这个函数可以为 send() 实现复杂的逻辑, 甚至 send() 包含日志输出
+  // 这种情况下, 如果日志输出逻辑需要在不同的线程中执行, 那么 send() 方法可以将消息添加到一个队列中, 
+  // 然后唤醒另一个处理实际日志输出的线程, 同时自身可以进行一些 LOG() 调用。
+  // WaitTillSent() 的具体实现可以用来等待这个逻辑完成.
   virtual void WaitTillSent();
 
   // 返回日志消息的字符串
