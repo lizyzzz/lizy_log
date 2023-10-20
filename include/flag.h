@@ -21,6 +21,7 @@ int32 FLAGS_minloglevel = 0;
 int32 FLAGS_logbuflevel = 0;
 int32 FLAGS_logbufsecs = 30;
 int32 FLAGS_logfile_mode = 0664;
+int32 FLAGS_logcleansecs = 60 * 5; // 5 min
 
 string FLAGS_log_dir = "./";
 string FLAGS_log_link = "";

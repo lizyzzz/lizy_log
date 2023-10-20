@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <sys/utsname.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include "utilities.h"
 #include "type.h"
 #include "flag.h"

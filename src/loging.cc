@@ -146,7 +146,6 @@ namespace {
     bool CreateLogfile(const std::string& time_pid_string);
   };
 
-  // TODO: lastest update
   // 封装所有日志清理相关状态
   class LogCleaner {
    public:
@@ -163,14 +162,15 @@ namespace {
     bool enabled() const { return enabled_; }
 
    private:
+    // 获取过期的日志文件名
     std::vector<std::string> GetOverdueLogNames(std::string log_directory, unsigned int days,
                                                 const std::string& base_filename,
                                                 const std::string& filename_extension) const;
-    
+    // 判断文件名是否是日志文件名的格式
     bool IsLogFromCurrentProject(const std::string& filepath,
                                  const std::string& base_filename,
                                  const std::string& filename_extension) const;
-
+    // 距离上次修改的时间是否到期
     bool IsLogLastModifiedOver(const std::string& filepath, unsigned int days) const;
 
     bool enabled_{false};
@@ -477,9 +477,181 @@ void LogFileObject::Write(bool force_flush, time_t timestamp, const char* messag
 
 LogCleaner::LogCleaner() = default;
 
-// TODO: lastest update 
 void LogCleaner::Enable(unsigned int overdue_days) {
+  enabled_ = true;
+  overdue_days_ = overdue_days;
+}
 
+void LogCleaner::Disable() {
+  enabled_ = false;
+}
+
+void LogCleaner::UpdateCleanUpTime() {
+  const int64 next = (FLAGS_logcleansecs * 1000000); // usec
+  next_cleanup_time_ = glog_internal_namespace_::CycleClock_Now() + glog_internal_namespace_::UsecToCycles(next);
+}
+
+void LogCleaner::Run(bool base_filename_selected, 
+                     const std::string& base_filename, 
+                     const std::string& filename_extension) {
+  
+  assert(enabled_);
+  assert(!base_filename_selected || !base_filename.empty());
+
+  // 避免 扫描日志太频繁
+  if (glog_internal_namespace_::CycleClock_Now() < next_cleanup_time_) {
+    return;
+  }
+
+  UpdateCleanUpTime();
+
+  std::vector<std::string> dirs;
+
+  if (!base_filename_selected) {
+    dirs = GetLoggingDirectories();
+  } else {
+    size_t pos = base_filename.find_last_of(possible_dir_delim, std::string::npos, sizeof(possible_dir_delim));
+
+    if (pos != std::string::npos) {
+      std::string dir = base_filename.substr(0, pos + 1);
+      dirs.push_back(dir);
+    } else {
+      dirs.emplace_back(".");
+    }
+  }
+
+  for (auto& dir : dirs) {
+    std::vector<std::string> logs = GetOverdueLogNames(dir, overdue_days_, base_filename, filename_extension);
+
+    for (auto& log : logs) {
+      static_cast<void>(unlink(log.c_str())); // 删除文件
+    }
+  }
+
+}
+
+
+std::vector<std::string> LogCleaner::GetOverdueLogNames(std::string log_directory, unsigned int days,
+                                                const std::string& base_filename,
+                                                const std::string& filename_extension) const {
+  
+  // 过期的日志
+  std::vector<std::string> overdue_log_names;
+
+  // 尝试获取在日志目录下的所有文件
+  DIR* dir;            // 目录结构体
+  struct dirent* ent;  // 目录项结构体(子目录)
+
+  if ((dir = opendir(log_directory.c_str()))) {
+    while ((ent = readdir(dir))) {
+      if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
+        // 跳过两个特殊的子目录
+        continue;
+      }
+
+      std::string filepath = ent->d_name;
+      // 尾指针
+      const char* const dir_delim_end = possible_dir_delim + sizeof(possible_dir_delim);
+      // 判断 log_directory 的结尾是否是文件夹结尾
+      if (!log_directory.empty() && std::find(possible_dir_delim, dir_delim_end, log_directory.back()) != dir_delim_end) {
+        filepath = log_directory + filepath;
+      }
+      // 
+      if (IsLogFromCurrentProject(filepath, base_filename, filename_extension) && 
+          IsLogLastModifiedOver(filepath, days)) {
+        overdue_log_names.push_back(filepath);
+      }
+    }
+    closedir(dir);
+  }
+
+  return overdue_log_names;
+}
+
+
+bool LogCleaner::IsLogFromCurrentProject(const std::string& filepath,
+                                 const std::string& base_filename,
+                                 const std::string& filename_extension) const {
+
+  // 移除 base_filename 多余的 '/'
+  // 原来 "/tmp//<base_filename>.<create_time>.<pid>"
+  // 移除 "/tmp/<base_filename>.<create_time>.<pid>"
+  std::string cleaned_base_filename;
+
+  const char* const dir_delim_end = possible_dir_delim + sizeof(possible_dir_delim);
+
+  size_t real_filepath_size = filepath.size();
+  for (char c : base_filename) {
+    if (cleaned_base_filename.empty()) {
+      cleaned_base_filename += c;
+    } else if (std::find(possible_dir_delim, dir_delim_end, c) == dir_delim_end || 
+               (!cleaned_base_filename.empty() && c != cleaned_base_filename.back())) {
+      
+      cleaned_base_filename += c;
+    }
+  }
+
+  // 如果 filename 不以 cleaned_base_filename 开头就返回
+  if (filepath.find(cleaned_base_filename) != 0) {
+    return false;
+  }
+
+  // 如果设置了 filename_extension, 则检查 filename_extension 是否在 cleaned_base_filename 的相邻右边
+  if (!filename_extension.empty()) {
+    if (cleaned_base_filename.size() >= real_filepath_size) {
+      return false;
+    }
+    // 对于原始版本, filename_extension 在 filepath 的中间
+    std::string ext = filepath.substr(cleaned_base_filename.size(), filename_extension.size());
+    if (ext == filename_extension) {
+      cleaned_base_filename += filename_extension;
+    } else {
+      // 对于新版本, filename_extension 在 filepath 的尾部
+      if (filename_extension.size() >= real_filepath_size) {
+        return false;
+      }
+      real_filepath_size = filepath.size() - filename_extension.size();
+      if (filepath.substr(real_filepath_size) != filename_extension) {
+        return false;
+      }
+    }
+  }
+
+  // YYYYMMDD-HHMMSS.pid
+  for (size_t i = cleaned_base_filename.size(); i < real_filepath_size; i++) {
+    const char& c = filepath[i];
+
+    if (i <= cleaned_base_filename.size() + 7) {
+      // 0~7: YYYYMMDD
+      if (c < '0' || c > '9') {return false;}
+    } else if (i == cleaned_base_filename.size() + 8) {
+      // 8: -
+      if (c != '-') {return false;}
+    } else if (i <= cleaned_base_filename.size() + 14) {
+      // 9~14: HHMMSS
+      if (c < '0' || c > '9') {return false;}
+    } else if (i == cleaned_base_filename.size() + 15) {
+      // 15: .
+      if (c != '.') {return false;}
+    } else if (i >= cleaned_base_filename.size() + 16) {
+      // 16+: pid
+      if (c < '0' || c > '9') {return false;}
+    }
+  }
+  return true;
+}
+
+bool LogCleaner::IsLogLastModifiedOver(const std::string& filepath, unsigned int days) const {
+  // 获取文件的上次修改时间
+  struct stat file_stat;
+
+  if (stat(filepath.c_str(), &file_stat) == 0) {
+    const time_t seconds_in_a_day = 60 * 60 * 24;
+    time_t last_modified_time = file_stat.st_mtime;
+    time_t current_time = time(nullptr);
+    return difftime(current_time, last_modified_time) > days * seconds_in_a_day; // 是否过期
+  }
+  return false;
 }
 
 
