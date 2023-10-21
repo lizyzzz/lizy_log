@@ -750,7 +750,7 @@ void LogFileObject::Write(bool force_flush, time_t timestamp, const char* messag
   // 如果文件还没创建就先创建
   if (file_ == nullptr) {
     // 每 32 条日志更新一次日志文件
-    // 如果在创建文件时出现问题会丢失日志
+    // 只有在创建文件时出现问题才会执行此处, 会丢失日志!
     if (++rollover_attempt_ != kRolloverAttemptFrequency) return;
     rollover_attempt_ = 0;
 

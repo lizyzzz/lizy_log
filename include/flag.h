@@ -5,10 +5,10 @@ using std::string;
 // TODO: read option from Json
 
 bool FLAGS_logtostderr = false;
+bool FLAGS_logtostdout = true;
 bool FLAGS_alsologtostderr = false;
-bool FLAGS_colorlogtostderr = false;
-bool FLAGS_colorlogtostdout = false;
-bool FLAGS_logtostdout = false;
+bool FLAGS_colorlogtostderr = true;
+bool FLAGS_colorlogtostdout = true;
 bool FLAGS_stop_logging_if_full_disk = false;
 bool FLAGS_log_utc_time = false;
 bool FLAGS_timestamp_in_logfile_name = true;

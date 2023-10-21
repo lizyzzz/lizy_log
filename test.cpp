@@ -4,9 +4,10 @@
 
 int main(int argc, char const *argv[])
 {
-  std::cout << "hello log" << std::endl;
+  std::cout << "cout hello log" << std::endl;
 
-  LOG(INFO) << "lizy";
+  LOG(WARNING) << "lizy";
+  LOG(INFO) << "hello log";
 
   return 0;
 }
