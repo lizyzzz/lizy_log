@@ -1,3 +1,7 @@
+#ifndef LIZY_FLAG_H_
+#define LIZY_FLAG_H_
+#pragma once
+
 #include <string>
 #include "type.h"
 using std::string;
@@ -5,7 +9,7 @@ using std::string;
 // TODO: read option from Json
 
 bool FLAGS_logtostderr = false;
-bool FLAGS_logtostdout = true;
+bool FLAGS_logtostdout = false;
 bool FLAGS_alsologtostderr = false;
 bool FLAGS_colorlogtostderr = true;
 bool FLAGS_colorlogtostdout = true;
@@ -30,3 +34,5 @@ uint32 FLAGS_max_log_size = 1800; // "MB"
 
 
 // int32 
+
+#endif

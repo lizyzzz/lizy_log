@@ -1,12 +1,12 @@
-#ifndef UTILITIES_H_
-#define UTILITIES_H_
+#ifndef LIZY_UTILITIES_H_
+#define LIZY_UTILITIES_H_
+#pragma once
 #include "type.h"
 #include <sys/time.h>
 #include <unistd.h>
 #include <string>
 #include <cstring>
 
-bool IsGoogleLoggingInitialized();
 
 namespace glog_internal_namespace_ {
 

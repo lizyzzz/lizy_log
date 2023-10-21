@@ -1,10 +1,11 @@
-#ifndef LOGGING_H_
-#define LOGGING_H_
+#ifndef LIZY_LOGGING_H_
+#define LIZY_LOGGING_H_
 
 #include <ostream>
 #include <iomanip>
 #include <ctime>
 #include <string>
+#include <cstring>
 #include <vector>
 #include <algorithm>
 #include <mutex>
@@ -16,11 +17,27 @@
 #include <sys/utsname.h>
 #include <sys/stat.h>
 #include <dirent.h>
-#include "utilities.h"
 #include "type.h"
 #include "flag.h"
+#include "utilities.h"
 
-typedef void (*logging_fail_func_t)();
+// 宏定义
+#define COMPACT_LIZY_LOG_INFO LogMessage(__FILE__, __LINE__)
+
+#define COMPACT_LIZY_LOG_WARNING LogMessage(__FILE__, __LINE__, GLOG_WARNING)
+
+#define COMPACT_LIZY_LOG_ERROR LogMessage(__FILE__, __LINE__, GLOG_ERROR)
+
+#define COMPACT_LIZY_LOG_FATAL LogMessage(__FILE__, __LINE__, GLOG_FATAL)
+
+#define LOG(severity) COMPACT_LIZY_LOG_ ## severity.stream()
+
+// 先声明
+namespace glog_internal_namespace_ {
+  struct CrashReason;
+}
+
+typedef void (*logging_fail_func_t)() __attribute__((noreturn));
 void InstallFailureFunction(logging_fail_func_t fail_func);
 
 struct LogMessageTime {
@@ -281,6 +298,20 @@ void SetLogger(LogSeverity level, Logger* logger);
 
 // 一些接口函数 //
 
+// 初始化日志库
+void InitGoogleLogging(const char* argv0);
+
+// 检查是否已经初始化
+bool IsGoogleLoggingInitialized();
+
+// 停止日志库
+void ShutdownGoogleLogging();
+
+// 启动或停止过期日志清理功能
+void EnableLogCleaner(unsigned int overdue_days);
+void DisableLogCleaner();
+
+
 // 设置 FALTAL 时执行的函数
 void InstallFailureFunction(logging_fail_func_t fail_func);
 
@@ -290,10 +321,53 @@ const char* GetLogSeverityName(LogSeverity severity);
 // 获取日志文件目录
 const std::vector<std::string>& GetLoggingDirectories();
 
+// 返回已存在的临时目录, 将会是 GetLoggingDirectories() 的子集
+void GetExistingTempDirectories(std::vector<std::string>* list);
+
+// 允许再次打印任意 fatal 信息
 void ReprintFatalMessage();
 
 
-// TODO: lastest update
+// 刷盘所有包含不低于指定等级日志的日志文件(线程安全) 
+void FlushLogFiles(LogSeverity min_severity);
+
+// 刷盘所有包含不低于指定等级日志的日志文件(线程不安全) 
+void FlushLogFilesUnsafe(LogSeverity min_severity);
+
+// 设置特定日志等级的目的文件名, 如果为"" ,则表示不记录该日志(线程安全)
+void SetLogDestination(LogSeverity severity, const char* base_filename);
+
+// 设置特定严重程度级别的最新日志文件的符号链接的基本名称
+// 如果 symlink_basename 为空，则不创建符号链接
+// 如果不调用此函数, 则符号链接的基本名称将是程序的调用名称(线程安全)
+void SetLogSymlink(LogSeverity severity, const char* symlink_basename);
+
+
+// 增加或者移除 LogSink 作为下沉对象(线程安全)
+void AddLogSink(LogSink* destination);
+void RemoveLogSink(LogSink* destination);
+
+// 指定通过 SetLogDestination 增加的文件名的后缀名
+// 这适用于所有严重等级
+void SetLogFilenameExtension(const char* filename_extension);
+
+// 使得所有至少具有特定严重程度级别的日志消息会被记录到标出错误输出(线程安全)
+void SetStderrLogging(LogSeverity min_serverity);
+
+// 使所有日志消息只被发送到标准错误输出
+void LogToStderr();
+
+// TODO: 增加日志截断
+// 截断一个可能是只允许多个进程追加模式输出的日志文件(通常是stdout/stderr)
+// 因此不能简单地重命名/重新打开
+// 如果文件 "path" 超过了 "limit" 字节，将最后的 "keep" 字节复制到偏移量0并截断其余部分。
+// 由于可能会与其他写入者竞争，这种方法有可能会丢失极小量的数据。出于安全考虑，仅在路径为 /proc/self/fd/* 时才跟随符号链接。
+// void TruncateLogFile(const char* path, uint64 limit, uint64 keep);
+
+// 如果 stdout 和 stderr 超过指定的值, 则截断至 max_log_size,
+// 保留到最后的 1MB, 这个函数与 TruncateLogFile 函数一样存在竞态
+// void TruncateStdoutStderr();
+
 
 
 #endif

@@ -1,4 +1,5 @@
 #include "logging.h"
+// #include "utilities.h"
 
 using std::setw;
 
@@ -50,6 +51,19 @@ const std::vector<std::string>& GetLoggingDirectories() {
     }
   }
   return *logging_directories_list;
+}
+
+void GetExistingTempDirectories(std::vector<std::string>* list) {
+  GetTempDirectories(list);
+  auto i_dir = list->begin();
+  while ( i_dir != list->end() ) {
+    if ( access(i_dir->c_str(), 0) ) {
+      // 是否可读, 不可读返回 -1
+      i_dir = list->erase(i_dir);
+    } else {
+      ++i_dir;
+    }
+  }
 }
 
 
@@ -186,7 +200,7 @@ namespace {
    public:
     LogCleaner();
 
-    // 将 overdue_days(逾期天数) 设置为 0 天会删除所有日志
+    // 将 overdue_days(过期天数) 设置为 0 天会删除所有日志
     void Enable(unsigned int overdue_days);
     void Disable();
 
@@ -280,6 +294,7 @@ class LogDestination {
     return terminal_supports_color_;
   }
 
+  // 删除写日志对象
   static void DeleteLogDestinations();
 
  private:
@@ -366,7 +381,7 @@ void LogDestination::SetLoggerImpl(base::Logger* logger) {
   logger_ = logger;
 }
 
-// 刷盘所有日志消息
+// 刷盘所有至少是指定日志等级的日志消息
 inline void LogDestination::FlushLogFiles(int min_severity) {
   // 获得锁
   std::lock_guard<std::mutex> lk(log_mutex);
@@ -604,7 +619,7 @@ const char possible_dir_delim[] = {'/'};
 
 LogFileObject::LogFileObject(LogSeverity severity, const char* base_filename)
  : base_filename_selected_(base_filename != nullptr),
-   base_filename_((base_filename != nullptr) ? base_filename : nullptr),
+   base_filename_((base_filename != nullptr) ? base_filename : ""),
    symlink_basename_(glog_internal_namespace_::ProgramInvocationShortName()),
    filename_extension_(),
    severity_(severity),
@@ -857,9 +872,9 @@ void LogFileObject::Write(bool force_flush, time_t timestamp, const char* messag
     }
   } else {
     if (glog_internal_namespace_::CycleClock_Now() >= next_flush_time_) {
-      stop_writing = false; // 需要刷新了
+      stop_writing = false; // 磁盘已满后过一定时间再尝试, 需要刷新了
     }
-    return; // 不需要刷盘
+    return; // 还没超时, 不需要刷盘
   }
 
   if ( force_flush || (bytes_since_flush_ >= 1000000) || 
@@ -1084,6 +1099,9 @@ static glog_internal_namespace_::CrashReason crash_reason;
 static bool fatal_msg_exclusive = true;
 static LogMessage::LogMessageData fatal_msg_data_exclusive;
 static LogMessage::LogMessageData fatal_msg_data_shared;
+
+/* ---------------------------------- LogMessage -------------------------------------------- */
+
 
 LogMessage::LogMessageData::LogMessageData()
   : stream_(message_text_, LogMessage::kMaxLogMessageLen, 0) { 
@@ -1415,6 +1433,8 @@ int64 LogMessage::num_messages(int severity) {
   return num_messages_[severity];
 }
 
+/* ---------------------------------- LogMessage end -------------------------------------------- */
+
 
 
 
@@ -1442,7 +1462,7 @@ std::ostream& operator<<(std::ostream& os, const PRIVATE_Counter&) {
   return os;
 }
 
-/* ----------------------------- LogMessageTime ---------------------------- */
+/* ----------------------------- LogMessageTime --------------------------------------- */
 LogMessageTime::LogMessageTime()
   : time_struct_(), timestamp_(0), usecs_(0), gmtoffset_(0) {}
 
@@ -1487,7 +1507,7 @@ void LogMessageTime::CalcGmtOffset() {
 }
 
 
-/* ----------------------------- LogMessageTime end ---------------------------- */
+/* ----------------------------- LogMessageTime end --------------------------------------- */
 
 
 /* ----------------------------- LogSink ---------------------------- */
@@ -1546,5 +1566,59 @@ std::string LogSink::ToString(LogSeverity severity, const char* file, int line,
 
 
 
+/* ----------------------------- 公共对外函数接口 ---------------------------- */
 
+void InitGoogleLogging(const char* argv0) {
+  glog_internal_namespace_::InitGoogleLoggingUtilities(argv0);
+}
 
+void ShutdownGoogleLogging() {
+  glog_internal_namespace_::ShutdownGoogleLoggingUtilities();
+  LogDestination::DeleteLogDestinations();
+  delete logging_directories_list;
+  logging_directories_list = nullptr;
+}
+
+void EnableLogCleaner(unsigned int overdue_days) {
+  log_cleaner.Enable(overdue_days);
+}
+
+void DisableLogCleaner() {
+  log_cleaner.Disable();
+}
+
+void FlushLogFiles(LogSeverity min_severity) {
+  LogDestination::FlushLogFiles(min_severity);
+}
+
+void FlushLogFilesUnsafe(LogSeverity min_severity) {
+  LogDestination::FlushLogFilesUnsafe(min_severity);
+}
+
+void SetLogDestination(LogSeverity severity, const char* base_filename) {
+  LogDestination::SetLogDestination(severity, base_filename);
+}
+
+void SetLogSymlink(LogSeverity severity, const char* symlink_basename) {
+  LogDestination::SetLogSymlink(severity, symlink_basename);
+}
+
+void AddLogSink(LogSink* destination) {
+  LogDestination::AddLogSink(destination);
+}
+
+void RemoveLogSink(LogSink* destination) {
+  LogDestination::RemoveLogSink(destination);
+}
+
+void SetLogFilenameExtension(const char* filename_extension) {
+  LogDestination::SetLogFilenameExtension(filename_extension);
+}
+
+void SetStderrLogging(LogSeverity min_serverity) {
+  LogDestination::SetStderrLogging(min_serverity);
+}
+
+void LogToStderr() {
+  LogDestination::LogToStderr();
+}
