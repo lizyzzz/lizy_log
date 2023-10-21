@@ -68,4 +68,29 @@ const std::string& MyUserName() {
   return g_my_user_name;
 }
 
+void InitGoogleLoggingUtilities(const char* argv0) {
+  if (IsGoogleLoggingInitialized()) {
+    // TODO: 使用 check 来终止程序
+    perror("You called InitGoogleLogging() twice!");
+  }
+  const char* slash = strrchr(argv0, '/');
+  g_program_invocation_short_name = slash ? slash + 1 : argv0;
+}
+
+void ShutdownGoogleLoggingUtilities() {
+  if (!IsGoogleLoggingInitialized()) {
+    perror("You called ShutdownGoogleLogging() without calling InitGoogleLogging() first!");
+  }
+
+  g_program_invocation_short_name = nullptr;
+}
+
+// 使用原子操作确保竞态安全性
+static const CrashReason* g_reason = nullptr;
+
+void SetCrashReason(const CrashReason* r) {
+  sync_val_compare_and_swap(&g_reason, reinterpret_cast<const CrashReason*>(0), r);
+}
+
+
 }

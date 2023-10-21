@@ -20,6 +20,20 @@ int64 UsecToCycles(int64 usec);
 // 获取路径在'/'的最后一个名字
 const char* const_basename(const char* filepath);
 
+template<class T>
+inline T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
+  // CAS
+  // 如果 *ptr 的值等于 oldval, 则将 newval 存储到 *ptr 中, 并返回 *ptr 原来的值
+  // 如果 *ptr 的值不等于 oldval, 则什么都不做, 并返回 *ptr 原来的值
+  T ret = *ptr;
+  if (ret == oldval) {
+    *ptr = newval;
+  }
+  return ret;
+}
+
+
+
 struct CrashReason {
   CrashReason() = default;
 
