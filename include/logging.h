@@ -126,7 +126,7 @@ namespace base_logging {
         return ch;
       }
 
-      // 公共 ostrstream 方法
+      // 公共 ostream 方法
       // 返回缓冲区填充的长度
       size_t pcount() const { return static_cast<size_t>(pptr() - pbase()); }
       // 返回首地址
@@ -209,7 +209,7 @@ class LogMessage {
     // 单条日志最长长度
     static const size_t kMaxLogMessageLen;
 
-    // 这些函数不应该在其他地方(非loging.*)直接调用, 应该作为参数 SendMethod 传递
+    // 这些函数不应该在其他地方(非logging.*)直接调用, 应该作为参数 SendMethod 传递
     void SendToLog();
     void SendToSyslogAndLog();
 

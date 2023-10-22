@@ -1,5 +1,4 @@
 #include "logging.h"
-// #include "utilities.h"
 
 using std::setw;
 
