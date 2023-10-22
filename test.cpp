@@ -9,6 +9,16 @@ int main(int argc, char const *argv[])
   SetLogFilenameExtension(".log");
 
   std::cout << "cout hello log" << std::endl;
+  LogSink* s;
+  LOG_TO_SINK(s, WARNING) << "sink";
+
+  string str;
+  LOG_TO_STRING(INFO, &str) << "log to string";
+  std::vector<string> vec;
+  LOG_STRING(INFO, &vec) << "log to vec";
+
+  LOG_IF(INFO, false) << "log if";
+
 
   LOG(WARNING) << "lizy";
   for (int i = 0; i < 100; i++) {

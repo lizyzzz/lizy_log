@@ -1422,6 +1422,7 @@ void LogMessage::WriteToStringAndLog() {
     size_t len = data_->num_chars_to_log_ - data_->num_prefix_chars_ - 1;
     data_->message_->assign(start, len);
   } 
+  SendToLog();
 }
 
 void LogMessage::SendToSyslogAndLog() {

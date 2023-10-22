@@ -23,14 +23,43 @@
 
 // 宏定义
 #define COMPACT_LIZY_LOG_INFO LogMessage(__FILE__, __LINE__)
+#define LOG_TO_STRING_INFO(message) LogMessage(__FILE__, __LINE__, GLOG_INFO, message)
 
 #define COMPACT_LIZY_LOG_WARNING LogMessage(__FILE__, __LINE__, GLOG_WARNING)
+#define LOG_TO_STRING_WARNING(message) LogMessage(__FILE__, __LINE__, GLOG_WARNING, message)
 
 #define COMPACT_LIZY_LOG_ERROR LogMessage(__FILE__, __LINE__, GLOG_ERROR)
+#define LOG_TO_STRING_ERROR(message) LogMessage(__FILE__, __LINE__, GLOG_ERROR, message)
 
 #define COMPACT_LIZY_LOG_FATAL LogMessage(__FILE__, __LINE__, GLOG_FATAL)
+#define LOG_TO_STRING_FATAL(message) LogMessage(__FILE__, __LINE__, GLOG_FATAL, message)
 
+// 标准宏定义
 #define LOG(severity) COMPACT_LIZY_LOG_ ## severity.stream()
+
+// Log to string 相关宏定义
+#define LOG_TO_STRING(severity, message) LOG_TO_STRING_ ## severity(static_cast<std::string*>(message)).stream()
+#define LOG_STRING(severity, outvec) LOG_TO_STRING_ ## severity(static_cast<std::vector<std::string>*>(outvec)).stream()
+
+// LogSink 相关宏定义
+#define LOG_TO_SINK(sink, severity) LogMessage(__FILE__, __LINE__, GLOG_ ## severity, \
+                                                static_cast<LogSink*>(sink), true).stream()
+
+#define LOG_TO_SINK_BUT_NOT_TO_LOGFILE(sink, severity)        \
+            LogMessage(__FILE__, __LINE__, GLOG_ ## severity, \
+            static_cast<LogSink*>(sink), false).stream()
+
+// LOG_IF 相关宏定义
+// static_cast<void>(0) 解释了 (void) 0 的作用, 如果条件为 false, 则执行 static_cast<void>(0), (void) 0 两句语句
+#define LOG_IF(severity, condition) \
+        static_cast<void>(0),       \
+        !(condition) ? (void) 0 : LogMessageVoidify() & LOG(severity)
+
+// LOG_ASSERT 相关宏定义
+#define LOG_ASSERT(condition) LOG_IF(FATAL, !(condition)) << "Assert failed: " #condition
+
+// TODO: lastest update CHECK 相关宏定义
+
 
 // 先声明
 namespace glog_internal_namespace_ {
@@ -259,6 +288,16 @@ class LogMessage {
 
 // 当前仅当 ostream 是 LogStream 时起作用
 std::ostream& operator<<(std::ostream &os, const PRIVATE_Counter&);
+
+class LogMessageVoidify {
+ public:
+  LogMessageVoidify() { }
+  
+  // 重载 & 返回空
+  // 用于 LOG_IF
+  // 二元运算符 & 优先级要大于“?:”，但是要小于“<<”。这 “&” 二元运算刚好满足
+  void operator&(std::ostream&) {}
+};
 
 
 namespace base {
