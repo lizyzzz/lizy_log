@@ -79,7 +79,7 @@ struct CheckOpString {
   std::string* str_;
 };
 
-// sink 扩展类 ( 虚基类 )
+// sink 扩展类 ( 基类 )
 class LogSink {
 public:
   virtual ~LogSink();

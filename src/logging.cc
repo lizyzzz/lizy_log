@@ -67,9 +67,12 @@ void GetExistingTempDirectories(std::vector<std::string>* list) {
 
 
 // mutex
+// 一个互斥锁, 它一次只允许一个线程记录日志, 以防止信息混乱.
+// 一些其他非常不常见的日志操作 (比如改变给定严重程度的日志消息的目标文件)也会锁定此互斥锁.
+// 请确保任何可能需要锁定它的人都这样做。
 static std::mutex log_mutex;
 
-// 每种优先级被发送的信息的数量
+// 每种优先级被发送的信息的数量(在持有 log_mutex 下更改)
 // 静态成员变量
 int64 LogMessage::num_messages_[NUM_SEVERITIES] = {0, 0, 0, 0};
 
