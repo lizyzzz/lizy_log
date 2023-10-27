@@ -4,6 +4,23 @@
 类图 UML:
 [UML](https://github.com/lizyzzz/lizy_log/blob/main/images/Log%20%E7%B1%BB%E5%9B%BE.jpg)
 
+## 安装与使用
+
+```bash
+mkdir build
+cd build
+cmake ..
+make 
+sudo make install
+```
+
+* 默认的安装路径是 `/usr/local/lib`, 所以您需要把该路径添加到动态链接库路径中
+
+```bash
+export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+// 或者把这句命令添加到您终端的配置文件中
+```
+
 ## 0. 实现的功能
 
 * 实现像 std::cout 那样的输出方式输出日志
