@@ -18,8 +18,7 @@
 // TODO list:
 /*
   (1) 性能测试
-  (2) 增加宏定义，适配更多的用法，如日志过滤
-  (3) 自定义 Logger 或 LogSink 适应不同的场景
+  (2) 自定义 Logger 或 LogSink 适应不同的场景
 */
 ```
 
@@ -71,7 +70,25 @@
 * LOG：输出到默认日志输出目标
 
 ```cpp
+  // 常用方式
   LOG(INFO) << "message";
+  LOG(WARNING) << "lizy";
+
+  // 输出到指定的目的地
+  LogSink s;
+  LOG_TO_SINK(&s, WARNING) << "sink";
+  // 输出到 string
+  string str;
+  LOG_TO_STRING(INFO, &str) << "log to string";
+  // 输出到 vector<string>
+  std::vector<string> vec;
+  LOG_STRING(INFO, &vec) << "log to vec";
+  // LOG_IF
+  LOG_IF(INFO, false) << "log if";
+  // CHECK
+  int a = 1;
+  int b = 2;
+  CHECK(a == b);
 ```
 
 ### 2.1 日志使用

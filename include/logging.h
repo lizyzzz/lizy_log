@@ -58,8 +58,49 @@
 // LOG_ASSERT 相关宏定义
 #define LOG_ASSERT(condition) LOG_IF(FATAL, !(condition)) << "Assert failed: " #condition
 
-// TODO: lastest update CHECK 相关宏定义
+// CHECK 接口
+#define lizy_PREDICT_BRANCH_NOT_TAKEN(x) x 
+#define CHECK(condition) \
+        LOG_IF(FATAL, lizy_PREDICT_BRANCH_NOT_TAKEN(!(condition))) << "Check failed: " #condition " "
 
+// 用于 CKECK 的类 
+struct CheckOpString {
+  CheckOpString(std::string* str): str_(str) {}
+
+  // 类型转化重载
+  operator bool() const {
+    return lizy_PREDICT_BRANCH_NOT_TAKEN(str_ != NULL);
+  }
+
+  std::string* str_;
+};
+
+// 为了允许在类中声明但未定义的静态整数常量作为CHECK*宏的参数, 对整数类型进行了重载, 但并不鼓励这样做
+template <class T>
+inline const T&       GetReferenceableValue(const T&           t) { return t; }
+inline char           GetReferenceableValue(char               t) { return t; }
+inline unsigned char  GetReferenceableValue(unsigned char      t) { return t; }
+inline signed char    GetReferenceableValue(signed char        t) { return t; }
+inline short          GetReferenceableValue(short              t) { return t; }
+inline unsigned short GetReferenceableValue(unsigned short     t) { return t; }
+inline int            GetReferenceableValue(int                t) { return t; }
+inline unsigned int   GetReferenceableValue(unsigned int       t) { return t; }
+inline long           GetReferenceableValue(long               t) { return t; }
+inline unsigned long GetReferenceableValue(unsigned long t) { return t; }
+inline long long      GetReferenceableValue(long long          t) { return t; }
+inline unsigned long long GetReferenceableValue(unsigned long long t) {
+  return t;
+}
+
+#define CHECK_OP(op, val1, val2) CHECK((val1) op (val2))
+
+// CHECK比较接口
+#define CHECK_EQ(val1, val2) CHECK_OP(==, val1, val2)
+#define CHECK_NE(val1, val2) CHECK_OP(!=, val1, val2)
+#define CHECK_LE(val1, val2) CHECK_OP(<=, val1, val2)
+#define CHECK_LT(val1, val2) CHECK_OP(< , val1, val2)
+#define CHECK_GE(val1, val2) CHECK_OP(>=, val1, val2)
+#define CHECK_GT(val1, val2) CHECK_OP(> , val1, val2)
 
 // 先声明
 namespace glog_internal_namespace_ {
@@ -96,16 +137,6 @@ struct LogMessageTime {
     long int gmtoffset_;  // 当前时区与标准时间(GMT)之间的偏移量(单位:s)
 
     void CalcGmtOffset();
-};
-
-struct CheckOpString {
-  CheckOpString(std::string* str) : str_(str) { }
-
-  // 将该类型转换为 bool
-  operator bool() const {
-    return str_ != NULL;
-  }
-  std::string* str_;
 };
 
 // sink 扩展类 ( 基类 )
