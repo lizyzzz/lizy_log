@@ -1,5 +1,4 @@
-#include "./include/logging.h"
-#include "iostream"
+#include "logging.h"
 
 
 int main(int argc, char const *argv[])
@@ -8,13 +7,11 @@ int main(int argc, char const *argv[])
   SetLogDestination(GLOG_INFO, "testLog");
   SetLogFilenameExtension(".log");
 
-  std::cout << "cout hello log" << std::endl;
   LogSink s;
   LOG_TO_SINK(&s, WARNING) << "sink";
 
   string str;
   LOG_TO_STRING(INFO, &str) << "log to string";
-  std::cout << str << std::endl;
   std::vector<string> vec;
   LOG_STRING(INFO, &vec) << "log to vec";
 

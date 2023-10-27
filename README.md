@@ -21,6 +21,42 @@ export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 // 或者把这句命令添加到您终端的配置文件中
 ```
 
+* 使用时
+
+```cpp
+#include "logging.h"
+
+
+int main(int argc, char const *argv[])
+{
+  InitGoogleLogging(argv[0]);
+  SetLogDestination(GLOG_INFO, "testLog");
+  SetLogFilenameExtension(".log");
+
+  LogSink s;
+  LOG_TO_SINK(&s, WARNING) << "sink";
+
+  string str;
+  LOG_TO_STRING(INFO, &str) << "log to string";
+  std::vector<string> vec;
+  LOG_STRING(INFO, &vec) << "log to vec";
+
+  LOG_IF(INFO, false) << "log if";
+
+
+  LOG(WARNING) << "lizy";
+  for (int i = 0; i < 100; i++) {
+    LOG(INFO) << "hello log";
+  }
+
+  int a = 1;
+  int b = 2;
+  CHECK(a == b);
+
+  return 0;
+}
+```
+
 ## 0. 实现的功能
 
 * 实现像 std::cout 那样的输出方式输出日志
