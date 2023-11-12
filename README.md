@@ -74,7 +74,7 @@ int main(int argc, char const *argv[])
 */
 ```
 * 测试
-![QPS](https://github.com/lizyzzz/lizy_log/blob/main/images/QPS.jpg)
+![QPS](https://github.com/lizyzzz/lizy_log/blob/main/images/QPS.png)
 
 ## 1. 日志库最基本的特性  
 
