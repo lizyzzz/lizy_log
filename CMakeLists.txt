@@ -16,6 +16,14 @@ add_library(lizyLog SHARED
   ${SOURCES}
 )
 
+add_executable(test
+  test.cpp
+)
+
+target_link_libraries(test
+  lizyLog
+)
+
 # 指定安装目录
 install(TARGETS lizyLog DESTINATION /usr/local/lib/lizyLog/)
 install(DIRECTORY include/ DESTINATION /usr/local/include/lizyLog)
