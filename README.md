@@ -70,10 +70,11 @@ int main(int argc, char const *argv[])
 ```cpp
 // TODO list:
 /*
-  (1) 性能测试
-  (2) 自定义 Logger 或 LogSink 适应不同的场景
+  (1) 自定义 Logger 或 LogSink 适应不同的场景
 */
 ```
+* 测试
+![QPS](https://github.com/lizyzzz/lizy_log/blob/main/images/QPS.jpg)
 
 ## 1. 日志库最基本的特性  
 
