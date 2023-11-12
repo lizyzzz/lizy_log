@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.0)
 
 project(lizy_log)
 
-add_compile_options(-g -std=c++14)
+add_compile_options(-g -std=c++17)
 
 include_directories(./include)
 

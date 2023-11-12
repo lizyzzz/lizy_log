@@ -9,6 +9,7 @@
 #include <vector>
 #include <algorithm>
 #include <mutex>
+#include <shared_mutex>
 #include <assert.h>
 #include <cmath>
 #include <unistd.h>
@@ -301,7 +302,7 @@ class LogMessage {
     void Init(const char* file, int line, LogSeverity severity, void (LogMessage::*send_method)());
 
     // 用于记录错误原因当 FATAL 发生时
-    void RecordCrashReason(glog_internal_namespace_::CrashReason* reason);
+    void RecordCrashReason(log_internal_namespace_::CrashReason* reason);
 
     // 每个优先级发送的消息计数
     static int64 num_messages_[NUM_SEVERITIES];
@@ -369,13 +370,13 @@ void SetLogger(LogSeverity level, Logger* logger);
 // 一些接口函数 //
 
 // 初始化日志库
-void InitGoogleLogging(const char* argv0);
+void InitLogging(const char* argv0);
 
 // 检查是否已经初始化
-bool IsGoogleLoggingInitialized();
+bool IsLoggingInitialized();
 
 // 停止日志库
-void ShutdownGoogleLogging();
+void ShutdownLogging();
 
 // 启动或停止过期日志清理功能
 void EnableLogCleaner(unsigned int overdue_days);

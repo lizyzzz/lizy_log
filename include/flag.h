@@ -20,7 +20,7 @@ bool FLAGS_log_file_header = true;
 bool FLAGS_log_year_in_prefix = true;
 bool FLAGS_drop_log_memory = true;
 
-int32 FLAGS_stderrthreshold = GLOG_ERROR;
+int32 FLAGS_stderrthreshold = LOG_ERROR;
 int32 FLAGS_minloglevel = 0;
 int32 FLAGS_logbuflevel = 0;
 int32 FLAGS_logbufsecs = 30;

@@ -336,7 +336,7 @@ class LogDestination {
   static std::vector<LogSink*>* sinks_;
 
   // 保护 sinks_ , 但不保护 sinks_ 里面的元素所指向的对象
-  static std::mutex sink_mutex_;
+  static std::shared_mutex sink_mutex_;
 
   // 禁止
   LogDestination(const LogDestination&) = delete;
@@ -347,7 +347,7 @@ class LogDestination {
 LogDestination* LogDestination::log_destinations_[NUM_SEVERITIES];
 bool LogDestination::terminal_supports_color_ = TerminalSupportsColor();
 std::vector<LogSink*>* LogDestination::sinks_ = nullptr;
-std::mutex LogDestination::sink_mutex_;
+std::shared_mutex LogDestination::sink_mutex_;
 std::string LogDestination::hostname_; 
 
 // 静态函数
@@ -419,13 +419,13 @@ void LogDestination::SetLogSymlink(LogSeverity severity, const char* symlink_fil
 }
 // 添加日志发送目的地
 void LogDestination::AddLogSink(LogSink *destination) {
-  std::lock_guard<std::mutex> lk(log_mutex);
+  std::lock_guard<std::shared_mutex> lk(sink_mutex_);
   if (!sinks_) { sinks_ = new std::vector<LogSink*>; }
   sinks_->push_back(destination);
 }
 // 删除日志发送目的地
 void LogDestination::RemoveLogSink(LogSink *destination) {
-  std::lock_guard<std::mutex> lk(log_mutex);
+  std::lock_guard<std::shared_mutex> lk(sink_mutex_);
   if (sinks_) {
     // std::remove() 把指定元素移动到容器末尾, 返回新范围的位置(但会破坏顺序)
     sinks_->erase(std::remove(sinks_->begin(), sinks_->end(), destination), sinks_->end());
@@ -458,7 +458,7 @@ void LogDestination::DeleteLogDestinations() {
     delete log_destination;
     log_destination = nullptr;
   }
-  std::lock_guard<std::mutex> lk(sink_mutex_);
+  std::lock_guard<std::shared_mutex> lk(sink_mutex_);
   delete sinks_;
   sinks_ = nullptr;
 }
@@ -472,18 +472,18 @@ inline LogDestination* LogDestination::log_destination(LogSeverity severity) {
 }
 
 // 严重程度颜色匹配
-static GLogColor SeverityToColor(LogSeverity severity) {
+static LogColor SeverityToColor(LogSeverity severity) {
   assert(severity >= 0 && severity < NUM_SEVERITIES);
-  GLogColor color = COLOR_DEFAULT;
+  LogColor color = COLOR_DEFAULT;
   switch(severity) {
-  case GLOG_INFO:
+  case LOG_INFO:
     color = COLOR_DEFAULT;
     break;
-  case GLOG_WARNING:
+  case LOG_WARNING:
     color = COLOR_YELLOW;
     break;
-  case GLOG_ERROR:
-  case GLOG_FATAL:
+  case LOG_ERROR:
+  case LOG_FATAL:
     color = COLOR_RED;
     break;
   default:
@@ -494,7 +494,7 @@ static GLogColor SeverityToColor(LogSeverity severity) {
 }
 
 // 颜色的 ANSI 转义码
-static const char* GetAnsiColorCode(GLogColor color) {
+static const char* GetAnsiColorCode(LogColor color) {
   switch (color) {
   case COLOR_RED:     return "1";
   case COLOR_GREEN:   return "2";
@@ -507,7 +507,7 @@ static const char* GetAnsiColorCode(GLogColor color) {
 // 把带颜色的日志写到 stderr or stdout
 static void ColoredWriteToStderrOrStdout(FILE* output, LogSeverity severity, const char* message, size_t len) {
   bool is_stdout = (output == stdout);
-  const GLogColor color = (LogDestination::terminal_supports_color() &&
+  const LogColor color = (LogDestination::terminal_supports_color() &&
                           ((!is_stdout && FLAGS_colorlogtostderr) ||
                            (is_stdout && FLAGS_colorlogtostdout))) ? 
                            SeverityToColor(severity) : COLOR_DEFAULT;
@@ -577,9 +577,8 @@ void LogDestination::LogToAllLogfiles(LogSeverity severity, time_t timestamp, co
 // 发送日志信息到所有已注册的 sinks
 void LogDestination::LogToSinks(LogSeverity severity, const char* full_filename, const char* base_filename, int line, 
                         const LogMessageTime& logmsgtime, const char* message, size_t message_len) {
-  
-  // TODO: 增加 读写锁提高读多写少的并发量
-  std::lock_guard<std::mutex> lk(sink_mutex_);
+  // C++ 17
+  std::shared_lock<std::shared_mutex> lk(sink_mutex_);
   if (sinks_) {
     for (size_t i = sinks_->size(); i-- > 0; ) {
       // i-- 是因为 size_t 是 unsigned
@@ -592,7 +591,7 @@ void LogDestination::LogToSinks(LogSeverity severity, const char* full_filename,
 // 等待所有已注册的输出目标通过 WaitTillSent 完成发送
 // 包括 "data" 中的可选目标
 void LogDestination::WaitForSinks(LogMessage::LogMessageData* data) {
-  std::lock_guard<std::mutex> lk(sink_mutex_);
+  std::shared_lock<std::shared_mutex> lk(sink_mutex_);
   if (sinks_) {
     for (size_t i = sinks_->size(); i-- > 0; ) {
       // i-- 是因为 size_t 是 unsigned
@@ -622,11 +621,11 @@ const char possible_dir_delim[] = {'/'};
 LogFileObject::LogFileObject(LogSeverity severity, const char* base_filename)
  : base_filename_selected_(base_filename != nullptr),
    base_filename_((base_filename != nullptr) ? base_filename : ""),
-   symlink_basename_(glog_internal_namespace_::ProgramInvocationShortName()),
+   symlink_basename_(log_internal_namespace_::ProgramInvocationShortName()),
    filename_extension_(),
    severity_(severity),
    rollover_attempt_(kRolloverAttemptFrequency - 1),
-   start_time_(glog_internal_namespace_::WallTime_Now())
+   start_time_(log_internal_namespace_::WallTime_Now())
     {
   assert(severity >= 0 && severity < NUM_SEVERITIES);
 }
@@ -684,7 +683,7 @@ void LogFileObject::FlushUnlocked() {
   }
 
   const int64 next = (FLAGS_logbufsecs * static_cast<int64>(1000000)); // 毫秒
-  next_flush_time_ = glog_internal_namespace_::CycleClock_Now() + glog_internal_namespace_::UsecToCycles(next); 
+  next_flush_time_ = log_internal_namespace_::CycleClock_Now() + log_internal_namespace_::UsecToCycles(next); 
 }
 
 bool LogFileObject::CreateLogfile(const std::string& time_pid_string) {
@@ -758,7 +757,7 @@ void LogFileObject::Write(bool force_flush, time_t timestamp, const char* messag
   }
 
   // file_length_ >> 20U 相当于把字节数转化从兆 B --> MB
-  if (file_length_ >> 20U >= MaxLogSize() || glog_internal_namespace_::PidHasChanged()) {
+  if (file_length_ >> 20U >= MaxLogSize() || log_internal_namespace_::PidHasChanged()) {
     if (file_ != nullptr) fclose(file_);
     file_ = nullptr;
     file_length_ = bytes_since_flush_ = dropped_mem_length_ = 0;
@@ -766,7 +765,7 @@ void LogFileObject::Write(bool force_flush, time_t timestamp, const char* messag
   }
   // 如果文件还没创建就先创建
   if (file_ == nullptr) {
-    // 每 32 条日志更新一次日志文件
+    // 会在32次后打开文件
     // 只有在创建文件时出现问题才会执行此处, 会丢失日志!
     if (++rollover_attempt_ != kRolloverAttemptFrequency) return;
     rollover_attempt_ = 0;
@@ -790,7 +789,7 @@ void LogFileObject::Write(bool force_flush, time_t timestamp, const char* messag
                     << setw(2) << tm_time.tm_min
                     << setw(2) << tm_time.tm_sec
                     << '.'
-                    << glog_internal_namespace_::GetMainThreadPid();
+                    << log_internal_namespace_::GetMainThreadPid();
     const std::string& time_pid_string = time_pid_stream.str();
 
     if (base_filename_selected_) {
@@ -803,11 +802,11 @@ void LogFileObject::Write(bool force_flush, time_t timestamp, const char* messag
       // 对于这个 severity_ 如果没有指定的 base_filename, 则使用默认的 base_filename
       // 默认名称: <program name>.<hostname>.<user name>.log.<severity level> 
 
-      std::string stripped_filename(glog_internal_namespace_::ProgramInvocationShortName());
+      std::string stripped_filename(log_internal_namespace_::ProgramInvocationShortName());
       std::string hostname;
       GetHostName(&hostname);
 
-      std::string uidname = glog_internal_namespace_::MyUserName();
+      std::string uidname = log_internal_namespace_::MyUserName();
       if (uidname.empty()) uidname = "invalid-user";
 
       stripped_filename = stripped_filename + '.' + hostname + '.' + uidname + ".log" + LogSeverityNames[severity_]+'.';
@@ -846,7 +845,7 @@ void LogFileObject::Write(bool force_flush, time_t timestamp, const char* messag
       const char* const date_time_format = FLAGS_log_year_in_prefix ? "yyyy-mm-dd hh:mm:ss.uuuuuu" : "mm-dd hh:mm:ss.uuuuuu";
       // `2023-10-08 17:13:08.888917 [webserver.cpp:36][info]: `
       file_header_stream << "Running duration (h:mm:ss): "
-                         << PrettyDuration(static_cast<int>(glog_internal_namespace_::WallTime_Now() - start_time_)) << '\n'
+                         << PrettyDuration(static_cast<int>(log_internal_namespace_::WallTime_Now() - start_time_)) << '\n'
                          << "Log line format: [IWEF]" << date_time_format << " "
                          << "[file:line][severity]: msg" << '\n';
       const string& file_header_string = file_header_stream.str();
@@ -873,14 +872,14 @@ void LogFileObject::Write(bool force_flush, time_t timestamp, const char* messag
       bytes_since_flush_ += message_len;
     }
   } else {
-    if (glog_internal_namespace_::CycleClock_Now() >= next_flush_time_) {
+    if (log_internal_namespace_::CycleClock_Now() >= next_flush_time_) {
       stop_writing = false; // 磁盘已满后过一定时间再尝试, 需要刷新了
     }
     return; // 还没超时, 不需要刷盘
   }
 
   if ( force_flush || (bytes_since_flush_ >= 1000000) || 
-      (glog_internal_namespace_::CycleClock_Now() >= next_flush_time_)) {
+      (log_internal_namespace_::CycleClock_Now() >= next_flush_time_)) {
     FlushUnlocked();
     // Linux
     // 如果文件长度大于 3MB, 则释放一些文件流中的内存
@@ -922,7 +921,7 @@ void LogCleaner::Disable() {
 
 void LogCleaner::UpdateCleanUpTime() {
   const int64 next = (FLAGS_logcleansecs * 1000000); // usec
-  next_cleanup_time_ = glog_internal_namespace_::CycleClock_Now() + glog_internal_namespace_::UsecToCycles(next);
+  next_cleanup_time_ = log_internal_namespace_::CycleClock_Now() + log_internal_namespace_::UsecToCycles(next);
 }
 
 void LogCleaner::Run(bool base_filename_selected, 
@@ -933,7 +932,7 @@ void LogCleaner::Run(bool base_filename_selected,
   assert(!base_filename_selected || !base_filename.empty());
 
   // 避免 扫描日志太频繁
-  if (glog_internal_namespace_::CycleClock_Now() < next_cleanup_time_) {
+  if (log_internal_namespace_::CycleClock_Now() < next_cleanup_time_) {
     return;
   }
 
@@ -1097,7 +1096,7 @@ bool LogCleaner::IsLogLastModifiedOver(const std::string& filepath, unsigned int
 // 因为多个线程可能同时调用 LOG(FATAL), 我们需要保留第一个 FATAL 信息
 // 申请两个 log data 空间, 一个由第一个线程独享, 一个由所有其他线程共享
 static std::mutex fatal_msg_lock;
-static glog_internal_namespace_::CrashReason crash_reason;
+static log_internal_namespace_::CrashReason crash_reason;
 static bool fatal_msg_exclusive = true;
 static LogMessage::LogMessageData fatal_msg_data_exclusive;
 static LogMessage::LogMessageData fatal_msg_data_shared;
@@ -1118,12 +1117,12 @@ LogMessage::LogMessage(const char* file, int line, LogSeverity severity, int64 c
 
 LogMessage::LogMessage(const char* file, int line, const CheckOpString& result)
     : allocated_(nullptr) {
-  Init(file, line, GLOG_FATAL, &LogMessage::SendToLog);
+  Init(file, line, LOG_FATAL, &LogMessage::SendToLog);
   stream() << "check failed: " << (*result.str_) << " ";
 }
 
 LogMessage::LogMessage(const char* file, int line) : allocated_(nullptr) {
-  Init(file, line, GLOG_INFO, &LogMessage::SendToLog);
+  Init(file, line, LOG_INFO, &LogMessage::SendToLog);
 }
 
 LogMessage::LogMessage(const char* file, int line, LogSeverity severity)
@@ -1151,7 +1150,7 @@ LogMessage::LogMessage(const char* file, int line, LogSeverity severity, std::st
 
 void LogMessage::Init(const char* file, int line, LogSeverity severity, void (LogMessage::*send_method)()) {
   allocated_ = nullptr;
-  if (severity != GLOG_FATAL) {
+  if (severity != LOG_FATAL) {
     allocated_ = new LogMessageData();
     data_ = allocated_;
     data_->first_fatal_ = false;
@@ -1175,13 +1174,13 @@ void LogMessage::Init(const char* file, int line, LogSeverity severity, void (Lo
   data_->sink_ = nullptr;
   data_->outvec_ = nullptr;
   data_->message_ = nullptr; // ??: add message_ nullptr
-  WallTime now = glog_internal_namespace_::WallTime_Now();
+  WallTime now = log_internal_namespace_::WallTime_Now();
   time_t timestamp_now = static_cast<time_t>(now);
   logmsgtime_ = LogMessageTime(timestamp_now, now);
 
   data_->num_chars_to_log_ = 0;
   data_->num_chars_to_syslog_ = 0;
-  data_->basename_ = glog_internal_namespace_::const_basename(file);
+  data_->basename_ = log_internal_namespace_::const_basename(file);
   data_->fullname_ = file;
   data_->has_been_flushed_ = false;
 
@@ -1281,7 +1280,7 @@ void ReprintFatalMessage() {
       // 避免重复打印
       WriteToStderr(fatal_message, n);
     }
-    LogDestination::LogToAllLogfiles(GLOG_ERROR, fatal_time, fatal_message, n);
+    LogDestination::LogToAllLogfiles(LOG_ERROR, fatal_time, fatal_message, n);
   }
 }
 
@@ -1292,13 +1291,13 @@ void LogMessage::SendToLog() {
   
   assert(data_->num_chars_to_log_ > 0 && data_->message_text_[data_->num_chars_to_log_ - 1] == '\n');
 
-  if (!already_warned_before_initgoolgle && !IsGoogleLoggingInitialized()) {
-    const char w[] = "WARNING: Logging before InitGoogleLogginging() is written to STDERR\n";
+  if (!already_warned_before_initgoolgle && !IsLoggingInitialized()) {
+    const char w[] = "WARNING: Logging before InitLogginging() is written to STDERR\n";
     WriteToStderr(w, strlen(w));
     already_warned_before_initgoolgle = true;
   }
 
-  if (FLAGS_logtostderr || FLAGS_logtostdout || !IsGoogleLoggingInitialized()) {
+  if (FLAGS_logtostderr || FLAGS_logtostdout || !IsLoggingInitialized()) {
     if (FLAGS_logtostdout) {
       ColoredWriteToStdout(data_->severity_, data_->message_text_, data_->num_chars_to_log_);
     } else {
@@ -1326,11 +1325,11 @@ void LogMessage::SendToLog() {
 
   // 如果我们记录了一个致命错误的消息, 将所有的日志输出刷新一遍
   // 然后发送一个信号让其他人来处理. 我们保持日志处于一种状态, 其他人可以使用它们(只要在之后也进行了刷新)
-  if (data_->severity_ == GLOG_FATAL && exit_on_dfatal) {
+  if (data_->severity_ == LOG_FATAL && exit_on_dfatal) {
     if (data_->first_fatal_) {
       // 保存错误信息
       RecordCrashReason(&crash_reason);
-      glog_internal_namespace_::SetCrashReason(&crash_reason);
+      log_internal_namespace_::SetCrashReason(&crash_reason);
 
       // 保存最短的错误信息
       const size_t copy = std::min(data_->num_chars_to_log_, sizeof(fatal_message) - 1);
@@ -1362,7 +1361,7 @@ void LogMessage::SendToLog() {
 
 }
 
-void LogMessage::RecordCrashReason(glog_internal_namespace_::CrashReason* reason) {
+void LogMessage::RecordCrashReason(log_internal_namespace_::CrashReason* reason) {
   reason->filename = fatal_msg_data_exclusive.fullname_;
   reason->line_number = fatal_msg_data_exclusive.line_;
   reason->message = fatal_msg_data_exclusive.message_text_ + fatal_msg_data_exclusive.num_prefix_chars_; // 不记录头部
@@ -1571,12 +1570,12 @@ std::string LogSink::ToString(LogSeverity severity, const char* file, int line,
 
 /* ----------------------------- 公共对外函数接口 ---------------------------- */
 
-void InitGoogleLogging(const char* argv0) {
-  glog_internal_namespace_::InitGoogleLoggingUtilities(argv0);
+void InitLogging(const char* argv0) {
+  log_internal_namespace_::InitLoggingUtilities(argv0);
 }
 
-void ShutdownGoogleLogging() {
-  glog_internal_namespace_::ShutdownGoogleLoggingUtilities();
+void ShutdownLogging() {
+  log_internal_namespace_::ShutdownLoggingUtilities();
   LogDestination::DeleteLogDestinations();
   delete logging_directories_list;
   logging_directories_list = nullptr;

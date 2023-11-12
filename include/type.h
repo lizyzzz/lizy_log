@@ -10,9 +10,9 @@ using uint32 = uint32_t;
 using LogSeverity = int;
 using WallTime = double;
 
-const int GLOG_INFO = 0, GLOG_WARNING = 1, GLOG_ERROR = 2, GLOG_FATAL = 3, NUM_SEVERITIES = 4;
+const int LOG_INFO = 0, LOG_WARNING = 1, LOG_ERROR = 2, LOG_FATAL = 3, NUM_SEVERITIES = 4;
 
-enum GLogColor {
+enum LogColor {
   COLOR_DEFAULT,
   COLOR_RED,
   COLOR_GREEN,

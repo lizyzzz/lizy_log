@@ -1,14 +1,14 @@
 #include "utilities.h"
 
-static const char* g_program_invocation_short_name = nullptr;
+static const char* log_program_invocation_short_name = nullptr;
 
-bool IsGoogleLoggingInitialized() {
-  return g_program_invocation_short_name != nullptr;
+bool IsLoggingInitialized() {
+  return log_program_invocation_short_name != nullptr;
 }
 
 
 
-namespace glog_internal_namespace_ {
+namespace log_internal_namespace_ {
 
 int64 CycleClock_Now() {
   struct timeval tv;
@@ -31,8 +31,8 @@ const char* const_basename(const char* filepath) {
 }
 
 const char* ProgramInvocationShortName() {
-  if (g_program_invocation_short_name != nullptr) {
-    return g_program_invocation_short_name;
+  if (log_program_invocation_short_name != nullptr) {
+    return log_program_invocation_short_name;
   } else {
     return "UNKNOWN";
   }
@@ -68,21 +68,21 @@ const std::string& MyUserName() {
   return g_my_user_name;
 }
 
-void InitGoogleLoggingUtilities(const char* argv0) {
-  if (IsGoogleLoggingInitialized()) {
+void InitLoggingUtilities(const char* argv0) {
+  if (IsLoggingInitialized()) {
     // TODO: 使用 check 来终止程序
     perror("You called InitGoogleLogging() twice!");
   }
   const char* slash = strrchr(argv0, '/');
-  g_program_invocation_short_name = slash ? slash + 1 : argv0;
+  log_program_invocation_short_name = slash ? slash + 1 : argv0;
 }
 
-void ShutdownGoogleLoggingUtilities() {
-  if (!IsGoogleLoggingInitialized()) {
+void ShutdownLoggingUtilities() {
+  if (!IsLoggingInitialized()) {
     perror("You called ShutdownGoogleLogging() without calling InitGoogleLogging() first!");
   }
 
-  g_program_invocation_short_name = nullptr;
+  log_program_invocation_short_name = nullptr;
 }
 
 // 使用原子操作确保竞态安全性
