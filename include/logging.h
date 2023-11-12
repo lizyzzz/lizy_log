@@ -19,21 +19,20 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include "type.h"
-#include "flag.h"
 #include "utilities.h"
 
 // 宏定义
 #define COMPACT_LIZY_LOG_INFO LogMessage(__FILE__, __LINE__)
-#define LOG_TO_STRING_INFO(message) LogMessage(__FILE__, __LINE__, GLOG_INFO, message)
+#define LOG_TO_STRING_INFO(message) LogMessage(__FILE__, __LINE__, LOG_INFO, message)
 
-#define COMPACT_LIZY_LOG_WARNING LogMessage(__FILE__, __LINE__, GLOG_WARNING)
-#define LOG_TO_STRING_WARNING(message) LogMessage(__FILE__, __LINE__, GLOG_WARNING, message)
+#define COMPACT_LIZY_LOG_WARNING LogMessage(__FILE__, __LINE__, LOG_WARNING)
+#define LOG_TO_STRING_WARNING(message) LogMessage(__FILE__, __LINE__, LOG_WARNING, message)
 
-#define COMPACT_LIZY_LOG_ERROR LogMessage(__FILE__, __LINE__, GLOG_ERROR)
-#define LOG_TO_STRING_ERROR(message) LogMessage(__FILE__, __LINE__, GLOG_ERROR, message)
+#define COMPACT_LIZY_LOG_ERROR LogMessage(__FILE__, __LINE__, LOG_ERROR)
+#define LOG_TO_STRING_ERROR(message) LogMessage(__FILE__, __LINE__, LOG_ERROR, message)
 
-#define COMPACT_LIZY_LOG_FATAL LogMessage(__FILE__, __LINE__, GLOG_FATAL)
-#define LOG_TO_STRING_FATAL(message) LogMessage(__FILE__, __LINE__, GLOG_FATAL, message)
+#define COMPACT_LIZY_LOG_FATAL LogMessage(__FILE__, __LINE__, LOG_FATAL)
+#define LOG_TO_STRING_FATAL(message) LogMessage(__FILE__, __LINE__, LOG_FATAL, message)
 
 // 标准宏定义
 #define LOG(severity) COMPACT_LIZY_LOG_ ## severity.stream()
@@ -43,11 +42,11 @@
 #define LOG_STRING(severity, outvec) LOG_TO_STRING_ ## severity(static_cast<std::vector<std::string>*>(outvec)).stream()
 
 // LogSink 相关宏定义
-#define LOG_TO_SINK(sink, severity) LogMessage(__FILE__, __LINE__, GLOG_ ## severity, \
+#define LOG_TO_SINK(sink, severity) LogMessage(__FILE__, __LINE__, LOG_ ## severity, \
                                                 static_cast<LogSink*>(sink), true).stream()
 
 #define LOG_TO_SINK_BUT_NOT_TO_LOGFILE(sink, severity)        \
-            LogMessage(__FILE__, __LINE__, GLOG_ ## severity, \
+            LogMessage(__FILE__, __LINE__, LOG_ ## severity, \
             static_cast<LogSink*>(sink), false).stream()
 
 // LOG_IF 相关宏定义
@@ -104,7 +103,7 @@ inline unsigned long long GetReferenceableValue(unsigned long long t) {
 #define CHECK_GT(val1, val2) CHECK_OP(> , val1, val2)
 
 // 先声明
-namespace glog_internal_namespace_ {
+namespace log_internal_namespace_ {
   struct CrashReason;
 }
 
@@ -381,6 +380,51 @@ void ShutdownLogging();
 // 启动或停止过期日志清理功能
 void EnableLogCleaner(unsigned int overdue_days);
 void DisableLogCleaner();
+
+// FLAGS 设置接口
+
+// 日志直接输出到 stderr
+void SetLogtostderr(bool flag);
+// 日志直接输出到 stdout
+void SetLogtostdout(bool flag);
+// 特定程度的日志输出到文件的同时是否也输出到 stderr
+void SetAlsologtostderr(bool flag);
+// 输出到 stderr 是否带颜色
+void SetColorlogtostderr(bool flag);
+// 输出到 stdout 是否带颜色
+void SetColorlogtostdout(bool flag);
+// 在磁盘满时是否继续写
+void SetStopLoggingIfFullDisk(bool flag);
+// 是否记录标准时间
+void SetLogUTCtime(bool flag);
+// 是否在 logfile 的名字中记录时间和pid
+void SetTimestampInLogfileName(bool flag);
+// 是否记录头部
+void SetLogFileHeader(bool flag);
+// 是否在日志前缀记录年
+void SetLogYearInPrefix(bool flag);
+// 是否定时清理一些日志文件在内存中的缓存
+void SetDropLogMemory(bool flag);
+
+// 写到 stderr 的日志程度阈值
+void SetStderrThreshold(int level);
+// 日志记录的最小等级
+void SetMinLogLevel(int level);
+// 日志可以异步刷盘的最高等级
+void SetLogBufLevel(int level);
+// 日志刷盘的最长时间间隔(单位: s)
+void SetLogBufSecs(int seconds);
+// 日志文件的权限
+void SetLogfileMode(int mode);
+// 检查是否有需要过期的日志需要清理的时间间隔
+void SetLogcleanSecs(int seconds);
+// 日志文件的目的文件夹
+void SetLogDir(const std::string& dir);
+// 日志文件软链接的文件夹
+void SetLogLink(const std::string& link);
+
+// 日志文件最大的大小
+void SetMaxLogSize(uint32 size);
 
 
 // 设置 FALTAL 时执行的函数

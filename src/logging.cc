@@ -1,4 +1,5 @@
 #include "logging.h"
+#include "flag.h"
 
 using std::setw;
 
@@ -648,13 +649,16 @@ void LogFileObject::SetBasename(const char* basename) {
       file_ = nullptr;
       rollover_attempt_ = kRolloverAttemptFrequency - 1;
     }
-    base_filename_ = basename;
+    if (!FLAGS_log_dir.empty()) {
+      base_filename_ = FLAGS_log_dir + basename;
+    } else {
+      base_filename_ = basename;
+    }
   }  
 }
 
 void LogFileObject::SetExtension(const char* ext) {
   std::lock_guard<std::mutex> lk(lock_);
-  base_filename_selected_ = true;
   if (filename_extension_ != ext) {
     // 正在改名字, 旧日志关闭
     if (file_ != nullptr) {
@@ -1369,14 +1373,14 @@ void LogMessage::RecordCrashReason(log_internal_namespace_::CrashReason* reason)
 }
 
 // 程序 crash 时调用的函数(默认是 abort() )
-logging_fail_func_t g_logging_fail_func = reinterpret_cast<logging_fail_func_t>(&abort);
+logging_fail_func_t logging_fail_func = reinterpret_cast<logging_fail_func_t>(&abort);
 // 修改 程序 crash 时调用的函数
 void InstallFailureFunction(logging_fail_func_t fail_func) {
-  g_logging_fail_func = fail_func;
+  logging_fail_func = fail_func;
 }
 
 void LogMessage::Fail() {
-  g_logging_fail_func();
+  logging_fail_func();
 }
 
 // 需要确保持有锁 log_mutex
@@ -1587,6 +1591,89 @@ void EnableLogCleaner(unsigned int overdue_days) {
 
 void DisableLogCleaner() {
   log_cleaner.Disable();
+}
+
+// 日志直接输出到 stderr
+void SetLogtostderr(bool flag) {
+  FLAGS_logtostderr = flag;
+}
+// 日志直接输出到 stdout
+void SetLogtostdout(bool flag) {
+  FLAGS_logtostdout = flag;
+}
+// 特定程度的日志输出到文件的同时是否也输出到 stderr
+void SetAlsologtostderr(bool flag) {
+  FLAGS_alsologtostderr = flag;
+}
+// 输出到 stderr 是否带颜色
+void SetColorlogtostderr(bool flag) {
+  FLAGS_colorlogtostderr = flag;
+}
+// 输出到 stdout 是否带颜色
+void SetColorlogtostdout(bool flag) {
+  FLAGS_colorlogtostdout = flag;
+}
+// 在磁盘满时是否继续写
+void SetStopLoggingIfFullDisk(bool flag) {
+  FLAGS_stop_logging_if_full_disk = flag;
+}
+// 是否记录标准时间
+void SetLogUTCtime(bool flag) {
+  FLAGS_log_utc_time = flag;
+}
+// 是否在 logfile 的名字中记录时间和pid
+void SetTimestampInLogfileName(bool flag) {
+  FLAGS_timestamp_in_logfile_name = flag;
+}
+// 是否记录头部
+void SetLogFileHeader(bool flag) {
+  FLAGS_log_file_header = flag;
+}
+// 是否在日志前缀记录年
+void SetLogYearInPrefix(bool flag) {
+  FLAGS_log_year_in_prefix = flag;
+}
+// 是否定时清理一些日志文件在内存中的缓存
+void SetDropLogMemory(bool flag) {
+  FLAGS_drop_log_memory = flag;
+}
+
+// 写到 stderr 的日志程度阈值
+void SetStderrThreshold(int level) {
+  FLAGS_stderrthreshold = level;
+}
+// 日志记录的最小等级
+void SetMinLogLevel(int level) {
+  FLAGS_minloglevel = level;
+}
+// 日志可以异步刷盘的最高等级
+void SetLogBufLevel(int level) {
+  FLAGS_logbuflevel = level;
+}
+// 日志刷盘的最长时间间隔(单位: s)
+void SetLogBufSecs(int seconds) {
+  FLAGS_logbufsecs = seconds;
+}
+// 日志文件的权限
+void SetLogfileMode(int mode) {
+  FLAGS_logfile_mode = mode;
+}
+// 检查是否有需要过期的日志需要清理的时间间隔
+void SetLogcleanSecs(int seconds) {
+  FLAGS_logcleansecs = seconds;
+}
+// 日志文件的目的文件夹
+void SetLogDir(const string& dir) {
+  FLAGS_log_dir = dir;
+}
+// 日志文件软链接的文件夹
+void SetLogLink(const string& link) {
+  FLAGS_log_link = link;
+}
+
+// 日志文件最大的大小
+void SetMaxLogSize(uint32 size) {
+  FLAGS_max_log_size = size;
 }
 
 void FlushLogFiles(LogSeverity min_severity) {
