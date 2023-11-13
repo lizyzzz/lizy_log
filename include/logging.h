@@ -22,6 +22,11 @@
 #include "utilities.h"
 
 // 宏定义
+#define INFO INFO
+#define WARNING WARNING
+#define ERROR ERROR
+#define FATAL FATAL
+
 #define COMPACT_LIZY_LOG_INFO LogMessage(__FILE__, __LINE__)
 #define LOG_TO_STRING_INFO(message) LogMessage(__FILE__, __LINE__, LOG_INFO, message)
 
